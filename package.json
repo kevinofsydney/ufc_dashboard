@@ -1,0 +1,53 @@
+{
+  "name": "ufc-bet-synthesiser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "cross-env XDG_CONFIG_HOME=.localappdata vite",
+    "build": "cross-env XDG_CONFIG_HOME=.localappdata vite build",
+    "preview": "cross-env XDG_CONFIG_HOME=.localappdata vite preview",
+    "deploy": "npm run build && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate:local": "cross-env XDG_CONFIG_HOME=.localappdata wrangler d1 migrations apply ufc-bet-synthesiser --local",
+    "db:migrate:remote": "cross-env XDG_CONFIG_HOME=.localappdata wrangler d1 migrations apply ufc-bet-synthesiser --remote",
+    "cf-typegen": "cross-env XDG_CONFIG_HOME=.localappdata wrangler types"
+  },
+  "dependencies": {
+    "hono": "4.12.30",
+    "lucide-react": "1.24.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "zod": "4.4.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.45.0",
+    "@cloudflare/workers-types": "5.20260717.1",
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.61.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.3",
+    "cross-env": "10.1.0",
+    "eslint": "10.7.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.3",
+    "globals": "17.7.0",
+    "prettier": "3.9.5",
+    "tailwindcss": "4.3.3",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.64.0",
+    "vite": "8.1.5",
+    "vitest": "4.1.10",
+    "wrangler": "4.111.0"
+  }
+}

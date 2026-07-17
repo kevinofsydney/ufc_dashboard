@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.wrangler/
+.npm-cache/
+.appdata/
+.localappdata/
+.dev.vars
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/
+*.log
+

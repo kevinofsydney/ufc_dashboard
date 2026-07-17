@@ -1,0 +1,59 @@
+import { describe, expect, it } from 'vitest'
+import app from '../../worker/index'
+
+describe('health endpoint', () => {
+  it('returns a minimal public status', async () => {
+    const response = await app.request('http://localhost/health', undefined, {
+      DB: {} as D1Database,
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      status: 'ok',
+      service: 'ufc-bet-synthesiser',
+    })
+  })
+
+  it('protects data routes outside local development', async () => {
+    const response = await app.request(
+      'https://example.com/api/status',
+      undefined,
+      {
+        DB: {} as D1Database,
+      },
+    )
+
+    expect(response.status).toBe(401)
+  })
+
+  it('allows local development data routes', async () => {
+    const response = await app.request(
+      'http://localhost/api/status',
+      undefined,
+      {
+        DB: {} as D1Database,
+      },
+    )
+
+    expect(response.status).toBe(200)
+  })
+
+  it('rejects a fight with the same participant on both sides before persistence', async () => {
+    const response = await app.request(
+      'http://localhost/api/fights',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cardId: 'card-one',
+          fighterAName: 'Same Fighter',
+          fighterBName: 'same fighter',
+          boutOrder: 1,
+        }),
+      },
+      { DB: {} as D1Database },
+    )
+
+    expect(response.status).toBe(400)
+  })
+})

@@ -1,0 +1,9 @@
+README.md
+package-lock.json
+dist/
+coverage/
+.wrangler/
+.npm-cache/
+.localappdata/
+migrations/
+
