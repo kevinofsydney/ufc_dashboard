@@ -1,3 +1,10 @@
+import {
+  getOpenRouterSessionSettings,
+  openRouterHeaders,
+  type OpenRouterSessionSettings,
+} from './llm-settings'
+import type { ReasoningEffort } from '../shared/schemas/openrouter'
+
 export interface Card {
   id: string
   name: string
@@ -18,6 +25,15 @@ export interface Capper {
   active: boolean
 }
 
+export interface ApplicationSettings {
+  currentBankrollCents: number
+  defaultUnitValueCents: number
+  preferredOpenRouterModel: string | null
+  savedOpenRouterModels: string[]
+  openRouterReasoningEffort: ReasoningEffort
+  updatedAt: string
+}
+
 export interface Alias {
   id: string
   entityId: string
@@ -32,6 +48,8 @@ export interface CardFetchPreview {
   bouts: Array<{
     fighter_a: string
     fighter_b: string
+    fighter_a_odds_raw: string | null
+    fighter_b_odds_raw: string | null
     weight_class: string | null
     bout_order: number | null
     is_main_event: boolean | null
@@ -222,18 +240,38 @@ export interface Bet {
   }>
 }
 
-async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(
+  url: string,
+  init?: RequestInit,
+  includeLlmSettings = false,
+): Promise<T> {
+  const headers = new Headers(init?.headers)
+  headers.set('Content-Type', 'application/json')
+  if (includeLlmSettings) {
+    const settings = getOpenRouterSessionSettings()
+    for (const [name, value] of Object.entries(openRouterHeaders(settings))) {
+      headers.set(name, value)
+    }
+  }
   const response = await fetch(url, {
     ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...init?.headers,
-    },
+    headers,
   })
 
-  const body = (await response.json()) as T & { error?: string }
-  if (!response.ok)
-    throw new Error(body.error ?? 'The request could not be completed')
+  let body: T & { error?: string }
+  try {
+    body = (await response.json()) as T & { error?: string }
+  } catch {
+    if (!response.ok) {
+      throw new Error(`The request failed with status ${response.status}`)
+    }
+    throw new Error('The server returned an unreadable response')
+  }
+  if (!response.ok) {
+    throw new Error(
+      body.error ?? `The request failed with status ${response.status}`,
+    )
+  }
   return body
 }
 
@@ -257,6 +295,26 @@ export async function getCards(): Promise<Card[]> {
   return (await requestJson<{ cards: Card[] }>('/api/cards')).cards
 }
 
+export async function getApplicationSettings(): Promise<ApplicationSettings> {
+  return (await requestJson<{ settings: ApplicationSettings }>('/api/settings'))
+    .settings
+}
+
+export async function patchApplicationSettings(input: {
+  currentBankrollCents?: number
+  defaultUnitValueCents?: number
+  preferredOpenRouterModel?: string | null
+  savedOpenRouterModels?: string[]
+  openRouterReasoningEffort?: ReasoningEffort
+}): Promise<ApplicationSettings> {
+  return (
+    await requestJson<{ settings: ApplicationSettings }>('/api/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    })
+  ).settings
+}
+
 export async function fetchCardPreview(url: string): Promise<CardFetchPreview> {
   return (
     await requestJson<{ preview: CardFetchPreview }>(
@@ -265,6 +323,7 @@ export async function fetchCardPreview(url: string): Promise<CardFetchPreview> {
         method: 'POST',
         body: JSON.stringify({ url }),
       },
+      true,
     )
   ).preview
 }
@@ -302,6 +361,13 @@ export async function patchCard(
       },
     )
   ).card
+}
+
+export async function deleteCard(cardId: string): Promise<void> {
+  await requestJson<{ deleted: true }>(
+    `/api/cards/${encodeURIComponent(cardId)}`,
+    { method: 'DELETE' },
+  )
 }
 
 export async function getFights(cardId: string): Promise<Fight[]> {
@@ -529,6 +595,7 @@ export async function parseSource(sourceId: string): Promise<ExtractionRun> {
     await requestJson<{ run: ExtractionRun }>(
       `/api/sources/${encodeURIComponent(sourceId)}/parse`,
       { method: 'POST' },
+      true,
     )
   ).run
 }
@@ -548,8 +615,58 @@ export async function postSynthesis(cardId: string): Promise<Synthesis> {
     await requestJson<{ synthesis: Synthesis }>(
       `/api/cards/${encodeURIComponent(cardId)}/syntheses`,
       { method: 'POST' },
+      true,
     )
   ).synthesis
+}
+
+export interface OpenRouterConnectionSummary {
+  keyLabel: string | null
+  isFreeTier: boolean | null
+  limitRemaining: number | null
+  limitReset: string | null
+  modelId: string
+  modelName: string | null
+}
+
+export interface OpenRouterModelSummary {
+  id: string
+  name: string
+  description: string | null
+  contextLength: number | null
+  promptPrice: string | null
+  completionPrice: string | null
+  reasoning: {
+    supportedEfforts: Exclude<ReasoningEffort, 'default'>[] | null
+    defaultEffort: Exclude<ReasoningEffort, 'default'> | null
+    defaultEnabled: boolean | null
+    supportsMaxTokens: boolean
+    mandatory: boolean
+  } | null
+}
+
+export async function testOpenRouterConnection(
+  settings: OpenRouterSessionSettings,
+): Promise<OpenRouterConnectionSummary> {
+  const headers = new Headers(openRouterHeaders(settings))
+  return (
+    await requestJson<{ connection: OpenRouterConnectionSummary }>(
+      '/api/settings/openrouter/test',
+      { method: 'POST', headers },
+    )
+  ).connection
+}
+
+export async function getOpenRouterModels(
+  apiKey: string,
+): Promise<OpenRouterModelSummary[]> {
+  const headers = new Headers({ 'X-OpenRouter-Api-Key': apiKey })
+  return (
+    await requestJson<{ models: OpenRouterModelSummary[] }>(
+      '/api/settings/openrouter/models',
+      { method: 'POST', headers },
+    )
+  ).models
 }
 
 export async function getCurrentSynthesis(

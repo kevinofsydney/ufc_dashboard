@@ -3,6 +3,7 @@ import {
   CircleDollarSign,
   Download,
   LoaderCircle,
+  PiggyBank,
   TrendingUp,
 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
@@ -10,11 +11,14 @@ import {
   getAnalyticsBets,
   getCapperGrades,
   getCards,
+  getApplicationSettings,
   downloadBackup,
   type Bet,
   type CapperGrade,
   type Card,
+  type ApplicationSettings,
 } from '../api'
+import { HelpTooltip } from './HelpTooltip'
 
 interface CardLedger {
   card: Card
@@ -65,6 +69,7 @@ function performanceRows(
 export function BankrollWorkspace() {
   const [ledgers, setLedgers] = useState<CardLedger[]>([])
   const [capperGrades, setCapperGrades] = useState<CapperGrade[]>([])
+  const [settings, setSettings] = useState<ApplicationSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [downloading, setDownloading] = useState(false)
   const [fromDate, setFromDate] = useState('')
@@ -72,17 +77,24 @@ export function BankrollWorkspace() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([getCards(), getCapperGrades(), getAnalyticsBets()])
-      .then(([cards, grades, bets]) => ({
+    Promise.all([
+      getCards(),
+      getCapperGrades(),
+      getAnalyticsBets(),
+      getApplicationSettings(),
+    ])
+      .then(([cards, grades, bets, nextSettings]) => ({
         grades,
+        settings: nextSettings,
         ledgers: cards.map((card) => ({
           card,
           bets: bets.filter((bet) => bet.cardId === card.id),
         })),
       }))
-      .then(({ grades, ledgers: nextLedgers }) => {
+      .then(({ grades, ledgers: nextLedgers, settings: nextSettings }) => {
         setCapperGrades(grades)
         setLedgers(nextLedgers)
+        setSettings(nextSettings)
       })
       .catch((requestError: unknown) =>
         setError(
@@ -216,6 +228,7 @@ export function BankrollWorkspace() {
             <button
               className="button button--secondary"
               type="button"
+              title="Download a versioned JSON backup of all application data"
               disabled={downloading}
               onClick={() => void handleBackup()}
             >
@@ -228,6 +241,16 @@ export function BankrollWorkspace() {
             </button>
           </div>
           <div className="metric-grid">
+            <article className="metric-card">
+              <div className="icon-tile icon-tile--warm">
+                <PiggyBank size={18} />
+              </div>
+              <span>Current bankroll</span>
+              <strong>
+                ${((settings?.currentBankrollCents ?? 0) / 100).toFixed(2)}
+              </strong>
+              <small>Manual AUD balance from Settings</small>
+            </article>
             <article className="metric-card">
               <div className="icon-tile icon-tile--warm">
                 <TrendingUp size={18} />
@@ -263,8 +286,14 @@ export function BankrollWorkspace() {
           <div className="records-card">
             <div className="section-heading">
               <div>
-                <p className="section-kicker">Actual settled results</p>
-                <h2>Running bankroll</h2>
+                <div className="heading-with-help">
+                  <h2>Running bankroll</h2>
+                  <HelpTooltip
+                    label="Running bankroll"
+                    text="This is cumulative net profit from settled bets in card-date order. Pending, skipped, and unplaced recommendations are excluded."
+                    align="left"
+                  />
+                </div>
               </div>
               <span className="quiet-badge">
                 {totals.grossUnits.toFixed(2)}u gross return
@@ -302,7 +331,6 @@ export function BankrollWorkspace() {
           <div className="records-card">
             <div className="section-heading">
               <div>
-                <p className="section-kicker">Reconciled history</p>
                 <h2>Card performance</h2>
               </div>
               <span className="quiet-badge">
@@ -364,7 +392,6 @@ export function BankrollWorkspace() {
               <div className="records-card" key={breakdown.title}>
                 <div className="section-heading">
                   <div>
-                    <p className="section-kicker">Settled performance</p>
                     <h2>By {breakdown.title.toLowerCase()}</h2>
                   </div>
                 </div>
@@ -401,8 +428,14 @@ export function BankrollWorkspace() {
           <div className="records-card">
             <div className="section-heading">
               <div>
-                <p className="section-kicker">Reviewed calls only</p>
-                <h2>Capper accuracy</h2>
+                <div className="heading-with-help">
+                  <h2>Capper accuracy</h2>
+                  <HelpTooltip
+                    label="Capper accuracy"
+                    text="Winner, method, and round use separate eligible denominators. ROI appears only for explicit tips that included a usable stated price."
+                    align="left"
+                  />
+                </div>
               </div>
               <span className="quiet-badge">
                 {capperGrades.length} graded cappers

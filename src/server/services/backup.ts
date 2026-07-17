@@ -1,6 +1,7 @@
 import type { Bindings } from '../env'
 
 const backupTables = [
+  'app_settings',
   'cards',
   'fighters',
   'fighter_aliases',
@@ -29,7 +30,7 @@ type BackupRow = Record<string, string | number | null>
 
 export interface ApplicationBackup {
   format: 'ufc-bet-synthesiser-backup'
-  version: 1
+  version: 2
   exportedAt: string
   tables: Record<BackupTable, BackupRow[]>
 }
@@ -44,7 +45,7 @@ export async function exportApplicationBackup(
   }
   return {
     format: 'ufc-bet-synthesiser-backup',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     tables,
   }
@@ -65,22 +66,40 @@ function isBackupRow(value: unknown): value is BackupRow {
 export function validateApplicationBackup(value: unknown): ApplicationBackup {
   if (typeof value !== 'object' || value === null || Array.isArray(value))
     throw new Error('Backup must be a JSON object')
-  const candidate = value as Partial<ApplicationBackup>
+  const candidate = value as Omit<
+    Partial<ApplicationBackup>,
+    'version' | 'tables'
+  > & {
+    version?: number
+    tables?: Record<string, unknown>
+  }
   if (
     candidate.format !== 'ufc-bet-synthesiser-backup' ||
-    candidate.version !== 1 ||
+    (candidate.version !== 1 && candidate.version !== 2) ||
     typeof candidate.exportedAt !== 'string' ||
     typeof candidate.tables !== 'object' ||
     candidate.tables === null
   ) {
     throw new Error('Unsupported backup format')
   }
+  const candidateTables = candidate.tables as Record<string, unknown>
   for (const table of backupTables) {
-    const rows = candidate.tables[table]
+    const rows =
+      candidate.version === 1 && table === 'app_settings'
+        ? []
+        : candidateTables[table]
     if (!Array.isArray(rows) || !rows.every(isBackupRow))
       throw new Error(`Backup table ${table} is invalid`)
   }
-  return candidate as ApplicationBackup
+  return {
+    format: 'ufc-bet-synthesiser-backup',
+    version: 2,
+    exportedAt: candidate.exportedAt,
+    tables: {
+      ...candidateTables,
+      app_settings: candidate.version === 1 ? [] : candidateTables.app_settings,
+    } as ApplicationBackup['tables'],
+  }
 }
 
 async function tableColumns(
@@ -107,6 +126,7 @@ export async function restoreApplicationBackup(
     counts.some(
       (result, index) =>
         backupTables[index] !== 'cappers' &&
+        backupTables[index] !== 'app_settings' &&
         Number((result.results[0] as { count?: number })?.count) > 0,
     )
   ) {
@@ -146,7 +166,7 @@ export async function restoreApplicationBackup(
       statements.push(
         db
           .prepare(
-            `${table === 'cappers' ? 'INSERT OR REPLACE' : 'INSERT'} INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+            `${table === 'cappers' || table === 'app_settings' ? 'INSERT OR REPLACE' : 'INSERT'} INTO ${table} (${columns.join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
           )
           .bind(...columns.map((column) => row[column])),
       )

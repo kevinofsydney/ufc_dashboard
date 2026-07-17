@@ -35,6 +35,8 @@ describe('UFC event page preview', () => {
         {
           fighter_a: 'Fighter One',
           fighter_b: 'Fighter Two',
+          fighter_a_odds_raw: null,
+          fighter_b_odds_raw: null,
           bout_order: 1,
           is_main_event: true,
         },
@@ -55,5 +57,64 @@ describe('UFC event page preview', () => {
       ),
     ).rejects.toThrow(/HTTPS/)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('retains explicitly displayed page odds as raw review data', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          '<html><body>Fighter One vs Fighter Two -245 odds +200</body></html>',
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    event_name: 'UFC Odds Fixture',
+                    event_starts_at_raw: null,
+                    bouts: [
+                      {
+                        fighter_a: 'Fighter One',
+                        fighter_b: 'Fighter Two',
+                        fighter_a_odds_raw: '-245',
+                        fighter_b_odds_raw: '+200',
+                        weight_class: null,
+                        bout_order: 1,
+                        is_main_event: true,
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        ),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      fetchCardPreview(
+        { DB: {} as D1Database },
+        'https://www.ufc.com/event/odds-fixture',
+        {
+          provider: 'openrouter',
+          model: 'fixture/model',
+          apiKey: 'fixture-key',
+        },
+      ),
+    ).resolves.toMatchObject({
+      bouts: [
+        {
+          fighter_a_odds_raw: '-245',
+          fighter_b_odds_raw: '+200',
+        },
+      ],
+    })
   })
 })

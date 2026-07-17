@@ -9,6 +9,7 @@ import {
 } from '../../shared/schemas/extraction'
 import type { Bindings } from '../env'
 import { callModel } from '../llm/call-model'
+import { providerConfigurationFromEnv } from '../llm/configuration'
 import type { ProviderConfiguration } from '../llm/provider'
 import {
   completeExtractionRun,
@@ -88,26 +89,23 @@ async function sha256(value: string): Promise<string> {
     .join('')
 }
 
-function getProviderConfiguration(env: Bindings): ProviderConfiguration {
-  const provider = env.LLM_PROVIDER
-  const model = env.LLM_MODEL
-  const apiKey =
-    provider === 'anthropic'
-      ? env.ANTHROPIC_API_KEY
-      : provider === 'openrouter'
-        ? env.OPENROUTER_API_KEY
-        : undefined
-  if (!provider || !model || !apiKey) {
+function getProviderConfiguration(
+  env: Bindings,
+  override?: ProviderConfiguration | null,
+): ProviderConfiguration {
+  const configuration = override ?? providerConfigurationFromEnv(env)
+  if (!configuration) {
     throw new Error(
-      'LLM extraction is not configured. Set LLM_PROVIDER, LLM_MODEL, and the matching Worker secret.',
+      'LLM extraction is not configured. Enter an OpenRouter key in Settings or configure the matching Worker secret.',
     )
   }
-  return { provider, model, apiKey, appOrigin: env.APP_ORIGIN }
+  return configuration
 }
 
 export async function parseSource(
   env: Bindings,
   sourceId: string,
+  configurationOverride?: ProviderConfiguration | null,
 ): Promise<ExtractionRunRecord> {
   const source = await getSource(env.DB, sourceId)
   if (!source) throw new Error('Source not found')
@@ -115,7 +113,7 @@ export async function parseSource(
     throw new Error('An individual source requires a primary capper')
   }
 
-  const configuration = getProviderConfiguration(env)
+  const configuration = getProviderConfiguration(env, configurationOverride)
   const run = await createExtractionRun(env.DB, {
     sourceId,
     provider: configuration.provider,

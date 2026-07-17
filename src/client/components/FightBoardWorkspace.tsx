@@ -19,6 +19,7 @@ import {
   type FightOutcome,
   type Synthesis,
 } from '../api'
+import { HelpTooltip } from './HelpTooltip'
 
 export function FightBoardWorkspace() {
   const [cards, setCards] = useState<Card[]>([])
@@ -213,6 +214,7 @@ export function FightBoardWorkspace() {
             <button
               className="button button--primary button--compact"
               type="button"
+              title="Calculate consensus and a budget-capped draft from accepted sources and current prices"
               disabled={synthesising || fights.length === 0}
               onClick={() => void handleSynthesis()}
             >
@@ -230,8 +232,14 @@ export function FightBoardWorkspace() {
       <div className="fight-column live-fight-board">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">Reviewed bout order</p>
-            <h2>Fight Board</h2>
+            <div className="heading-with-help">
+              <h2>Fight Board</h2>
+              <HelpTooltip
+                label="Fight Board"
+                text="Read the computed pick, weighted share, supporters, dissent, method and round evidence. Add sources and prices first, then create a draft slate."
+                align="left"
+              />
+            </div>
           </div>
           <span className="quiet-badge">{fights.length} fights</span>
         </div>
@@ -259,167 +267,156 @@ export function FightBoardWorkspace() {
                   outcome?.status === 'winner' && outcome.winnerFighterId
                     ? `winner:${outcome.winnerFighterId}`
                     : (outcome?.status ?? 'pending')
+                const summary = synthesis?.fightSummaries.find(
+                  (item) => item.fightId === fight.id,
+                )
+                const pickedFighter = [fight.fighterA, fight.fighterB].find(
+                  (fighter) => fighter.id === summary?.consensusFighterId,
+                )
+                const isAwaitingConsensus = !summary || !pickedFighter
                 return (
                   <article
-                    className={`fight-board-card ${fight.status !== 'scheduled' ? 'fight-board-card--muted' : ''}`}
+                    className={`fight-board-card ${isAwaitingConsensus ? 'fight-board-card--awaiting' : ''} ${fight.status !== 'scheduled' ? 'fight-board-card--muted' : ''}`}
                     key={fight.id}
                   >
-                    <div className="fight-board-card__order">
-                      <span>
-                        {fight.isMainEvent
-                          ? 'Main event'
-                          : `Bout ${fight.boutOrder ?? index + 1}`}
-                      </span>
-                      <small>
-                        {fight.weightClass ?? 'Weight class not recorded'}
-                      </small>
+                    <div className="fight-board-card__identity">
+                      <div className="fight-board-card__order">
+                        <span>
+                          {fight.isMainEvent
+                            ? 'Main event'
+                            : `Bout ${fight.boutOrder ?? index + 1}`}
+                        </span>
+                        <small>
+                          {fight.weightClass ?? 'Weight class not recorded'}
+                        </small>
+                      </div>
+                      <div className="fight-board-card__matchup">
+                        <strong>{fight.fighterA.name}</strong>
+                        <span>vs</span>
+                        <strong>{fight.fighterB.name}</strong>
+                      </div>
                     </div>
-                    <div className="fight-board-card__matchup">
-                      <strong>{fight.fighterA.name}</strong>
-                      <span>vs</span>
-                      <strong>{fight.fighterB.name}</strong>
-                    </div>
-                    <div className="fight-board-card__empty">
-                      <span className="empty-consensus__bar" />
-                      {(() => {
-                        const summary = synthesis?.fightSummaries.find(
-                          (item) => item.fightId === fight.id,
-                        )
-                        const pickedFighter = [
-                          fight.fighterA,
-                          fight.fighterB,
-                        ].find(
-                          (fighter) =>
-                            fighter.id === summary?.consensusFighterId,
-                        )
-                        if (!summary || !pickedFighter) {
-                          return (
-                            <p>
-                              {fight.status === 'scheduled'
-                                ? 'Awaiting accepted source opinions'
-                                : fight.status}
+                    <div className="fight-board-card__analysis">
+                      {isAwaitingConsensus ? (
+                        <p className="fight-board-card__status">
+                          {fight.status === 'scheduled'
+                            ? 'No accepted source opinions yet'
+                            : fight.status}
+                        </p>
+                      ) : (
+                        <div className="consensus-result">
+                          <div className="consensus-result__pick">
+                            <span>Pick</span>
+                            <strong>{pickedFighter.name}</strong>
+                            <small>
+                              {summary.rawSupportCount}/
+                              {summary.eligibleVoterCount} cappers ·{' '}
+                              {Math.round((summary.weightedShare ?? 0) * 100)}%
+                              weighted
+                            </small>
+                          </div>
+                          {summary.badges.length > 0 && (
+                            <div className="consensus-badges">
+                              {summary.badges.map((badge) => (
+                                <span key={badge}>
+                                  {badge.replaceAll('_', ' ')}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          {summary.evidence.missingCurrentMoneylinePrice && (
+                            <p className="form-message form-message--warning">
+                              Consensus found, but its current moneyline price
+                              is missing from the Odds Board.
                             </p>
-                          )
-                        }
-                        return (
-                          <div className="consensus-result">
-                            <div className="consensus-result__pick">
-                              <span>Pick</span>
-                              <strong>{pickedFighter.name}</strong>
+                          )}
+                          <div className="consensus-detail-grid">
+                            <div>
+                              <span>Method</span>
+                              <strong>
+                                {summary.consensusMethod
+                                  ? summary.consensusMethod.replace('_', '/')
+                                  : 'No consensus'}
+                              </strong>
                               <small>
-                                {summary.rawSupportCount}/
-                                {summary.eligibleVoterCount} cappers ·{' '}
-                                {Math.round((summary.weightedShare ?? 0) * 100)}
-                                % weighted
+                                {summary.methodSupportCount}/
+                                {summary.methodEligibleCount || 0} eligible
                               </small>
                             </div>
-                            {summary.badges.length > 0 && (
-                              <div className="consensus-badges">
-                                {summary.badges.map((badge) => (
-                                  <span key={badge}>
-                                    {badge.replaceAll('_', ' ')}
-                                  </span>
-                                ))}
-                              </div>
-                            )}
-                            {summary.evidence.missingCurrentMoneylinePrice && (
-                              <p className="form-message form-message--warning">
-                                Consensus found, but its current moneyline price
-                                is missing from the Odds Board.
-                              </p>
-                            )}
-                            <div className="consensus-detail-grid">
-                              <div>
-                                <span>Method</span>
-                                <strong>
-                                  {summary.consensusMethod
-                                    ? summary.consensusMethod.replace('_', '/')
-                                    : 'No consensus'}
-                                </strong>
-                                <small>
-                                  {summary.methodSupportCount}/
-                                  {summary.methodEligibleCount || 0} eligible
-                                </small>
-                              </div>
-                              <div>
-                                <span>Round</span>
-                                <strong>
-                                  {summary.consensusRound ?? 'Few/no calls'}
-                                </strong>
-                                <small>
-                                  {summary.roundSupportCount}/
-                                  {summary.roundEligibleCount || 0} eligible
-                                </small>
-                              </div>
+                            <div>
+                              <span>Round</span>
+                              <strong>
+                                {summary.consensusRound ?? 'Few/no calls'}
+                              </strong>
+                              <small>
+                                {summary.roundSupportCount}/
+                                {summary.roundEligibleCount || 0} eligible
+                              </small>
                             </div>
-                            {summary.evidence.tracker && (
-                              <div className="tracker-evidence">
-                                <strong>Tracker evidence</strong>
-                                {summary.evidence.tracker.allChannels && (
-                                  <span>
-                                    All channels — {fight.fighterA.name}:{' '}
-                                    {summary.evidence.tracker.allChannels
-                                      .fighter_a_count ?? '—'}{' '}
-                                    · {fight.fighterB.name}:{' '}
-                                    {summary.evidence.tracker.allChannels
-                                      .fighter_b_count ?? '—'}{' '}
-                                    · total{' '}
-                                    {summary.evidence.tracker.allChannels
-                                      .total ?? 'not stated'}
-                                  </span>
-                                )}
-                                {summary.evidence.tracker.bestOverall && (
-                                  <span>
-                                    Best predictors — {fight.fighterA.name}:{' '}
-                                    {summary.evidence.tracker.bestOverall
-                                      .fighter_a_count ?? '—'}{' '}
-                                    · {fight.fighterB.name}:{' '}
-                                    {summary.evidence.tracker.bestOverall
-                                      .fighter_b_count ?? '—'}{' '}
-                                    · total{' '}
-                                    {summary.evidence.tracker.bestOverall
-                                      .total ?? 'not stated'}
-                                  </span>
-                                )}
-                                {summary.evidence.tracker.bookmakerNote && (
-                                  <small>
-                                    {summary.evidence.tracker.bookmakerNote}
-                                  </small>
-                                )}
-                              </div>
-                            )}
-                            <p className="consensus-overview">
-                              <strong>Why:</strong> {summary.overviewText}
-                            </p>
-                            {(summary.evidence.dissenters.length > 0 ||
-                              summary.evidence.supporters.length > 0) && (
-                              <details className="consensus-sources">
-                                <summary>
-                                  Supporting and dissenting evidence
-                                </summary>
-                                {summary.evidence.supporters.map(
-                                  (supporter) => (
-                                    <p key={`support-${supporter.capperId}`}>
-                                      <strong>{supporter.capperName}</strong>{' '}
-                                      supports ({supporter.confidence}) —{' '}
-                                      {supporter.reasoning}
-                                    </p>
-                                  ),
-                                )}
-                                {summary.evidence.dissenters.map(
-                                  (dissenter) => (
-                                    <p key={`dissent-${dissenter.capperId}`}>
-                                      <strong>{dissenter.capperName}</strong>{' '}
-                                      dissents ({dissenter.confidence}) —{' '}
-                                      {dissenter.reasoning}
-                                    </p>
-                                  ),
-                                )}
-                              </details>
-                            )}
                           </div>
-                        )
-                      })()}
+                          {summary.evidence.tracker && (
+                            <div className="tracker-evidence">
+                              <strong>Tracker evidence</strong>
+                              {summary.evidence.tracker.allChannels && (
+                                <span>
+                                  All channels — {fight.fighterA.name}:{' '}
+                                  {summary.evidence.tracker.allChannels
+                                    .fighter_a_count ?? '—'}{' '}
+                                  · {fight.fighterB.name}:{' '}
+                                  {summary.evidence.tracker.allChannels
+                                    .fighter_b_count ?? '—'}{' '}
+                                  · total{' '}
+                                  {summary.evidence.tracker.allChannels.total ??
+                                    'not stated'}
+                                </span>
+                              )}
+                              {summary.evidence.tracker.bestOverall && (
+                                <span>
+                                  Best predictors — {fight.fighterA.name}:{' '}
+                                  {summary.evidence.tracker.bestOverall
+                                    .fighter_a_count ?? '—'}{' '}
+                                  · {fight.fighterB.name}:{' '}
+                                  {summary.evidence.tracker.bestOverall
+                                    .fighter_b_count ?? '—'}{' '}
+                                  · total{' '}
+                                  {summary.evidence.tracker.bestOverall.total ??
+                                    'not stated'}
+                                </span>
+                              )}
+                              {summary.evidence.tracker.bookmakerNote && (
+                                <small>
+                                  {summary.evidence.tracker.bookmakerNote}
+                                </small>
+                              )}
+                            </div>
+                          )}
+                          <p className="consensus-overview">
+                            <strong>Why:</strong> {summary.overviewText}
+                          </p>
+                          {(summary.evidence.dissenters.length > 0 ||
+                            summary.evidence.supporters.length > 0) && (
+                            <details className="consensus-sources">
+                              <summary>
+                                Supporting and dissenting evidence
+                              </summary>
+                              {summary.evidence.supporters.map((supporter) => (
+                                <p key={`support-${supporter.capperId}`}>
+                                  <strong>{supporter.capperName}</strong>{' '}
+                                  supports ({supporter.confidence}) —{' '}
+                                  {supporter.reasoning}
+                                </p>
+                              ))}
+                              {summary.evidence.dissenters.map((dissenter) => (
+                                <p key={`dissent-${dissenter.capperId}`}>
+                                  <strong>{dissenter.capperName}</strong>{' '}
+                                  dissents ({dissenter.confidence}) —{' '}
+                                  {dissenter.reasoning}
+                                </p>
+                              ))}
+                            </details>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <form
                       className="fight-outcome-form"
@@ -495,11 +492,14 @@ export function FightBoardWorkspace() {
         <div className="draft-slate">
           <div className="section-heading">
             <div>
-              <p className="section-kicker">
-                {synthesis.status === 'accepted' ? 'Accepted' : 'Draft'} ·
-                deterministic
-              </p>
-              <h2>Recommended slate</h2>
+              <div className="heading-with-help">
+                <h2>Recommended slate</h2>
+                <HelpTooltip
+                  label="Recommended slate"
+                  text="Review every proposed play and the unspent budget. Accepting copies recommendations to the ledger; it does not place bets with a bookmaker."
+                  align="left"
+                />
+              </div>
             </div>
             <span className="quiet-badge">
               {synthesis.recommendedUnits}u proposed · {synthesis.unspentUnits}u

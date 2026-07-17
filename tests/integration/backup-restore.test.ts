@@ -7,7 +7,12 @@ import {
   restoreApplicationBackup,
 } from '../../src/server/services/backup'
 import { synthesiseCard } from '../../src/server/services/synthesise-card'
+import { listCards, softDeleteCard } from '../../src/server/repositories/cards'
 import { listCapperGrades } from '../../src/server/repositories/outcomes'
+import {
+  getApplicationSettings,
+  updateApplicationSettings,
+} from '../../src/server/repositories/settings'
 
 const migrationFiles = [
   '0001_initial.sql',
@@ -18,6 +23,9 @@ const migrationFiles = [
   '0006_reviewed_extraction.sql',
   '0007_synthesis_evidence.sql',
   '0008_soft_delete_prices.sql',
+  '0009_application_settings.sql',
+  '0010_soft_delete_cards.sql',
+  '0011_openrouter_preferences.sql',
 ]
 
 describe('D1 backup restore rehearsal', () => {
@@ -247,6 +255,18 @@ describe('D1 backup restore rehearsal', () => {
       ]),
     )
 
+    await updateApplicationSettings(
+      source,
+      {
+        currentBankrollCents: 25_000,
+        defaultUnitValueCents: 1_500,
+        preferredOpenRouterModel: 'author/reasoner',
+        savedOpenRouterModels: ['author/reasoner', 'author/free:free'],
+        openRouterReasoningEffort: 'high',
+      },
+      'restore-test@example.com',
+    )
+
     const backup = await exportApplicationBackup(source)
     const result = await restoreApplicationBackup(target, backup)
     const restored = await target
@@ -259,11 +279,32 @@ describe('D1 backup restore rehearsal', () => {
       name: 'Restore rehearsal',
       lifecycle: 'completed',
     })
+    expect(await getApplicationSettings(target)).toMatchObject({
+      currentBankrollCents: 25_000,
+      defaultUnitValueCents: 1_500,
+      preferredOpenRouterModel: 'author/reasoner',
+      savedOpenRouterModels: ['author/reasoner', 'author/free:free'],
+      openRouterReasoningEffort: 'high',
+    })
     expect(
       await target
         .prepare('SELECT COUNT(*) AS count FROM synthesis_runs')
         .first<{ count: number }>(),
     ).toEqual({ count: 1 })
+
+    await softDeleteCard(target, 'card-restore-test', 'owner@example.com')
+    expect(await listCards(target)).toEqual([])
+    expect(
+      await target
+        .prepare(
+          `SELECT cards.deleted_at IS NOT NULL AS deleted, audit_events.action
+           FROM cards
+           INNER JOIN audit_events ON audit_events.entity_id = cards.id
+           WHERE cards.id = ? AND audit_events.action = 'deleted'`,
+        )
+        .bind('card-restore-test')
+        .first(),
+    ).toMatchObject({ deleted: 1, action: 'deleted' })
   })
 
   it('refuses to overwrite an already restored database', async () => {

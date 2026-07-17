@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { ReasoningEffort } from '../../shared/schemas/openrouter'
 
 export type ModelTask =
   | 'individual_extraction'
@@ -36,6 +37,7 @@ export interface ProviderConfiguration {
   model: string
   apiKey: string
   appOrigin?: string
+  reasoningEffort?: ReasoningEffort
 }
 
 export class ModelConfigurationError extends Error {}

@@ -8,6 +8,8 @@ export const cardFetchSchema = z.object({
       z.object({
         fighter_a: z.string().trim().min(1).max(160),
         fighter_b: z.string().trim().min(1).max(160),
+        fighter_a_odds_raw: z.string().trim().max(32).nullable(),
+        fighter_b_odds_raw: z.string().trim().max(32).nullable(),
         weight_class: z.string().trim().max(120).nullable(),
         bout_order: z.number().int().min(1).max(100).nullable(),
         is_main_event: z.boolean().nullable(),

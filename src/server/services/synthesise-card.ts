@@ -9,6 +9,7 @@ import {
 } from '../../shared/maths/consensus'
 import type { Bindings } from '../env'
 import { callModel } from '../llm/call-model'
+import { providerConfigurationFromEnv } from '../llm/configuration'
 import type { ProviderConfiguration } from '../llm/provider'
 
 const fightOverviewsSchema = z.object({
@@ -201,21 +202,6 @@ function trackerMajority(
   return split.fighter_a_count > split.fighter_b_count ? fighterAId : fighterBId
 }
 
-function modelConfiguration(env: Bindings): ProviderConfiguration | null {
-  if (!env.LLM_PROVIDER || !env.LLM_MODEL) return null
-  const apiKey =
-    env.LLM_PROVIDER === 'anthropic'
-      ? env.ANTHROPIC_API_KEY
-      : env.OPENROUTER_API_KEY
-  if (!apiKey) return null
-  return {
-    provider: env.LLM_PROVIDER,
-    model: env.LLM_MODEL,
-    apiKey,
-    appOrigin: env.APP_ORIGIN,
-  }
-}
-
 function sentenceCount(value: string): number {
   return value
     .split(/[.!?]+(?:\s|$)/)
@@ -226,6 +212,7 @@ function sentenceCount(value: string): number {
 export async function synthesiseCard(
   env: Bindings,
   cardId: string,
+  configurationOverride?: ProviderConfiguration | null,
 ): Promise<SynthesisResult> {
   const card = await env.DB.prepare(
     `SELECT id, budget_units FROM cards WHERE id = ?`,
@@ -509,7 +496,8 @@ export async function synthesiseCard(
     })
 
   const allocation = allocateSlate(candidates, card.budget_units)
-  const llmConfiguration = modelConfiguration(env)
+  const llmConfiguration =
+    configurationOverride ?? providerConfigurationFromEnv(env)
   if (llmConfiguration && summaries.length > 0) {
     try {
       const generated = await callModel(

@@ -13,15 +13,29 @@ import {
   type Fight,
   unsettleBet,
 } from '../api'
+import {
+  buildBetSelection,
+  pickTypeOptionsForFight,
+  type PickType,
+} from '../bet-builder'
+import { HelpTooltip } from './HelpTooltip'
+
+type ManualLeg = {
+  id: string
+  fightId: string
+  selectionFighterId: string
+  pickType: PickType
+}
 
 export function LedgerWorkspace() {
   const [cards, setCards] = useState<Card[]>([])
   const [bets, setBets] = useState<Bet[]>([])
   const [fights, setFights] = useState<Fight[]>([])
-  const [manualLegs, setManualLegs] = useState<
-    Array<{ id: string; fightId: string; selectionFighterId: string }>
-  >([])
-  const [manualMarketType, setManualMarketType] = useState('moneyline')
+  const [manualLegs, setManualLegs] = useState<ManualLeg[]>([])
+  const [manualPickType, setManualPickType] = useState<PickType | 'parlay'>(
+    'moneyline',
+  )
+  const [manualFighterId, setManualFighterId] = useState('')
   const [selectedCardId, setSelectedCardId] = useState('')
   const [saving, setSaving] = useState(false)
   const [busyBetId, setBusyBetId] = useState<string | null>(null)
@@ -48,6 +62,14 @@ export function LedgerWorkspace() {
       .then(([nextBets, nextFights]) => {
         setBets(nextBets)
         setFights(nextFights)
+        setManualFighterId((current) =>
+          nextFights.some(
+            (fight) =>
+              fight.fighterA.id === current || fight.fighterB.id === current,
+          )
+            ? current
+            : (nextFights[0]?.fighterA.id ?? ''),
+        )
       })
       .catch((requestError: unknown) =>
         setError(
@@ -73,6 +95,23 @@ export function LedgerWorkspace() {
     [bets],
   )
   const selectedCard = cards.find((card) => card.id === selectedCardId)
+  const fighterOptions = useMemo(
+    () =>
+      fights.flatMap((fight) => [
+        { fighter: fight.fighterA, fight },
+        { fighter: fight.fighterB, fight },
+      ]),
+    [fights],
+  )
+  const manualFight = fighterOptions.find(
+    ({ fighter }) => fighter.id === manualFighterId,
+  )?.fight
+  const singlePick =
+    manualFight && manualPickType !== 'parlay'
+      ? buildBetSelection(manualFight, manualFighterId, manualPickType)
+      : null
+  const manualBetIncomplete =
+    manualPickType === 'parlay' ? manualLegs.length < 2 : !singlePick
   const replaceBet = (updated: Bet) =>
     setBets((current) =>
       current.map((item) => (item.id === updated.id ? updated : item)),
@@ -95,27 +134,43 @@ export function LedgerWorkspace() {
     setSaving(true)
     setError(null)
     try {
-      const structuredLegs = manualLegs.flatMap((leg) => {
+      const parlayLegs = manualLegs.flatMap((leg) => {
         const fight = fights.find((item) => item.id === leg.fightId)
-        const fighter = [fight?.fighterA, fight?.fighterB].find(
-          (item) => item?.id === leg.selectionFighterId,
-        )
-        return fight && fighter
+        const selection = fight
+          ? buildBetSelection(fight, leg.selectionFighterId, leg.pickType)
+          : null
+        return fight && selection
           ? [
               {
                 fightId: fight.id,
-                marketType: 'moneyline',
-                selectionFighterId: fighter.id,
-                selectionText: fighter.name,
+                marketType: selection.marketType,
+                selectionFighterId: leg.selectionFighterId,
+                selectionText: selection.selectionText,
               },
             ]
           : []
       })
-      const marketType = String(form.get('marketType') ?? 'moneyline')
+      const marketType =
+        manualPickType === 'parlay'
+          ? 'parlay'
+          : (singlePick?.marketType ?? 'moneyline')
       const selectionText =
         marketType === 'parlay'
-          ? structuredLegs.map((leg) => leg.selectionText).join(' + ')
-          : String(form.get('selectionText') ?? '').trim()
+          ? parlayLegs.map((leg) => leg.selectionText).join(' + ')
+          : (singlePick?.selectionText ?? '')
+      const structuredLegs =
+        marketType === 'parlay'
+          ? parlayLegs
+          : manualFight && singlePick
+            ? [
+                {
+                  fightId: manualFight.id,
+                  marketType: singlePick.marketType,
+                  selectionFighterId: manualFighterId,
+                  selectionText: singlePick.selectionText,
+                },
+              ]
+            : []
       const bet = await postManualBet({
         cardId: selectedCardId,
         marketType,
@@ -123,11 +178,11 @@ export function LedgerWorkspace() {
         oddsTakenInput: String(form.get('oddsTakenInput') ?? '').trim(),
         stakeUnits,
         notes: String(form.get('notes') ?? '').trim() || null,
-        legs: marketType === 'parlay' ? structuredLegs : undefined,
+        legs: structuredLegs,
       })
       setBets((current) => [bet, ...current])
       formElement.reset()
-      setManualMarketType('moneyline')
+      setManualPickType('moneyline')
       setManualLegs([])
     } catch (requestError) {
       setError(
@@ -228,12 +283,13 @@ export function LedgerWorkspace() {
         id: crypto.randomUUID(),
         fightId: fights[0]?.id ?? '',
         selectionFighterId: fights[0]?.fighterA.id ?? '',
+        pickType: 'moneyline',
       },
     ])
 
   const updateManualLeg = (
     id: string,
-    field: 'fightId' | 'selectionFighterId',
+    field: 'fightId' | 'selectionFighterId' | 'pickType',
     value: string,
   ) =>
     setManualLegs((current) =>
@@ -245,7 +301,11 @@ export function LedgerWorkspace() {
             ...leg,
             fightId: value,
             selectionFighterId: fight?.fighterA.id ?? '',
+            pickType: 'moneyline',
           }
+        }
+        if (field === 'pickType') {
+          return { ...leg, pickType: value as PickType }
         }
         return { ...leg, selectionFighterId: value }
       }),
@@ -260,7 +320,9 @@ export function LedgerWorkspace() {
             value={selectedCardId}
             onChange={(event) => {
               setSelectedCardId(event.target.value)
-              setManualMarketType('moneyline')
+              setFights([])
+              setManualFighterId('')
+              setManualPickType('moneyline')
               setManualLegs([])
             }}
           >
@@ -294,44 +356,70 @@ export function LedgerWorkspace() {
               <Plus size={19} />
             </div>
             <div>
-              <p className="section-kicker">Track reality</p>
-              <h2>Add a manual bet</h2>
+              <div className="heading-with-help">
+                <h2>Add a manual bet</h2>
+                <HelpTooltip
+                  label="Add a manual bet"
+                  text="Record any bet you actually placed outside the generated slate. For parlays, add each structured leg and enter the bookmaker's combined odds."
+                  align="left"
+                />
+              </div>
             </div>
           </div>
+          {manualPickType !== 'parlay' && (
+            <label className="field">
+              <span>Fighter</span>
+              <select
+                value={manualFighterId}
+                onChange={(event) => {
+                  setManualFighterId(event.target.value)
+                  setManualPickType('moneyline')
+                }}
+                disabled={fighterOptions.length === 0}
+              >
+                {fighterOptions.length === 0 && (
+                  <option value="">Add fights to this card first</option>
+                )}
+                {fighterOptions.map(({ fighter, fight }) => (
+                  <option key={`${fight.id}:${fighter.id}`} value={fighter.id}>
+                    {fighter.name} — vs{' '}
+                    {fight.fighterA.id === fighter.id
+                      ? fight.fighterB.name
+                      : fight.fighterA.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="field">
-            <span>Selection</span>
-            <input
-              name="selectionText"
-              required={manualMarketType !== 'parlay'}
-              disabled={manualMarketType === 'parlay'}
-              maxLength={240}
-              placeholder={
-                manualMarketType === 'parlay'
-                  ? 'Built from the legs below'
-                  : 'Fighter or prop selection'
-              }
-            />
-          </label>
-          <label className="field">
-            <span>Market</span>
+            <span>Bet type</span>
             <select
-              name="marketType"
-              value={manualMarketType}
+              aria-label="Bet type"
+              value={manualPickType}
               onChange={(event) => {
-                setManualMarketType(event.target.value)
+                setManualPickType(event.target.value as PickType | 'parlay')
                 if (event.target.value === 'parlay' && manualLegs.length === 0)
                   addManualLeg()
               }}
             >
-              <option value="moneyline">Moneyline</option>
-              <option value="method">Method</option>
-              <option value="over_under">Over / under</option>
-              <option value="prop">Prop</option>
+              {(manualFight
+                ? pickTypeOptionsForFight(manualFight)
+                : [{ value: 'moneyline' as const, label: 'Moneyline (ML)' }]
+              ).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
               <option value="parlay">Parlay</option>
-              <option value="other">Other</option>
             </select>
           </label>
-          {manualMarketType === 'parlay' && (
+          {manualPickType !== 'parlay' && singlePick && (
+            <div className="pick-preview" aria-live="polite">
+              <span>Line</span>
+              <strong>{singlePick.selectionText}</strong>
+            </div>
+          )}
+          {manualPickType === 'parlay' && (
             <fieldset className="parlay-builder">
               <legend>Structured parlay legs</legend>
               {manualLegs.map((leg, index) => {
@@ -370,6 +458,21 @@ export function LedgerWorkspace() {
                         .map((fighter) => (
                           <option key={fighter.id} value={fighter.id}>
                             {fighter.name}
+                          </option>
+                        ))}
+                    </select>
+                    <select
+                      aria-label={`Bet type for leg ${index + 1}`}
+                      value={leg.pickType}
+                      onChange={(event) =>
+                        updateManualLeg(leg.id, 'pickType', event.target.value)
+                      }
+                      required
+                    >
+                      {fight &&
+                        pickTypeOptionsForFight(fight).map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
                           </option>
                         ))}
                     </select>
@@ -431,11 +534,7 @@ export function LedgerWorkspace() {
           <button
             className="button button--primary button--full"
             type="submit"
-            disabled={
-              saving ||
-              !selectedCardId ||
-              (manualMarketType === 'parlay' && manualLegs.length < 2)
-            }
+            disabled={saving || !selectedCardId || manualBetIncomplete}
           >
             {saving ? (
               <LoaderCircle className="spin" size={17} />
@@ -449,8 +548,14 @@ export function LedgerWorkspace() {
         <div className="records-card">
           <div className="section-heading">
             <div>
-              <p className="section-kicker">Accepted slate + manual</p>
-              <h2>Bet Ledger</h2>
+              <div className="heading-with-help">
+                <h2>Bet Ledger</h2>
+                <HelpTooltip
+                  label="Bet Ledger"
+                  text="For recommendations, record the actual price and stake or skip them. Settle placed bets after the event; settled values lock until explicitly unsettled."
+                  align="left"
+                />
+              </div>
             </div>
             <span className="quiet-badge">{bets.length} bets</span>
           </div>
@@ -476,7 +581,7 @@ export function LedgerWorkspace() {
                   <small>
                     {bet.origin} · {bet.marketType.replace('_', ' ')}
                   </small>
-                  {bet.legs.length > 0 && (
+                  {bet.marketType === 'parlay' && bet.legs.length > 0 && (
                     <ol className="ledger-legs">
                       {bet.legs.map((leg) => (
                         <li key={leg.id}>

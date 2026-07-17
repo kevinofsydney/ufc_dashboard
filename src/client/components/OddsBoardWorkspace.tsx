@@ -11,6 +11,7 @@ import {
   type MarketPrice,
 } from '../api'
 import { synthesisConfig } from '../../shared/config/synthesis'
+import { HelpTooltip } from './HelpTooltip'
 
 const oddsBoardLoadedAt = Date.now()
 
@@ -160,8 +161,14 @@ export function OddsBoardWorkspace() {
               <CircleDollarSign size={19} />
             </div>
             <div>
-              <p className="section-kicker">Current market</p>
-              <h2>Add a moneyline price</h2>
+              <div className="heading-with-help">
+                <h2>Add a moneyline price</h2>
+                <HelpTooltip
+                  label="Add a moneyline price"
+                  text="Enter the price currently available at your bookmaker. Decimal and signed American formats are accepted; saving creates a timestamped snapshot."
+                  align="left"
+                />
+              </div>
             </div>
           </div>
 
@@ -243,8 +250,14 @@ export function OddsBoardWorkspace() {
         <div className="records-card">
           <div className="section-heading">
             <div>
-              <p className="section-kicker">Price history</p>
-              <h2>Odds Board</h2>
+              <div className="heading-with-help">
+                <h2>Odds Board</h2>
+                <HelpTooltip
+                  label="Odds Board"
+                  text="The newest active price for each selection is used during synthesis. Stale or missing prices remain visible but cannot silently qualify a bet."
+                  align="left"
+                />
+              </div>
             </div>
             <span className="quiet-badge">{prices.length} snapshots</span>
           </div>

@@ -57,6 +57,32 @@ describe('health endpoint', () => {
     expect(response.status).toBe(200)
   })
 
+  it('requires complete OpenRouter settings for a connection check', async () => {
+    const response = await app.request(
+      'http://localhost/api/settings/openrouter/test',
+      { method: 'POST' },
+      { DB: {} as D1Database },
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: 'Enter an OpenRouter API key and model in Settings',
+    })
+  })
+
+  it('requires an OpenRouter key before loading models', async () => {
+    const response = await app.request(
+      'http://localhost/api/settings/openrouter/models',
+      { method: 'POST' },
+      { DB: {} as D1Database },
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      error: 'Enter an OpenRouter API key before loading models',
+    })
+  })
+
   it('rejects a fight with the same participant on both sides before persistence', async () => {
     const response = await app.request(
       'http://localhost/api/fights',
@@ -74,5 +100,34 @@ describe('health endpoint', () => {
     )
 
     expect(response.status).toBe(400)
+  })
+
+  it('returns a useful conflict when a capper name already exists', async () => {
+    const response = await app.request(
+      'http://localhost/api/cappers',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Existing capper' }),
+      },
+      {
+        DB: {
+          prepare: () => ({
+            bind: () => ({
+              run: async () => {
+                throw new Error(
+                  'D1_ERROR: UNIQUE constraint failed: cappers.name',
+                )
+              },
+            }),
+          }),
+        } as unknown as D1Database,
+      },
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: 'A capper with that name already exists',
+    })
   })
 })

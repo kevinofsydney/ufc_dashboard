@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "cross-env XDG_CONFIG_HOME=.localappdata vite",
+    "dev": "npm run db:migrate:local && cross-env XDG_CONFIG_HOME=.localappdata vite",
     "build": "cross-env XDG_CONFIG_HOME=.localappdata vite build",
     "preview": "cross-env XDG_CONFIG_HOME=.localappdata vite preview",
     "deploy": "npm run build && wrangler deploy",

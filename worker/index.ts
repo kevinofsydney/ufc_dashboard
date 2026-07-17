@@ -14,6 +14,7 @@ import {
 import {
   createCard,
   listCards,
+  softDeleteCard,
   updateCard,
 } from '../src/server/repositories/cards'
 import {
@@ -66,11 +67,31 @@ import {
   restoreApplicationBackup,
 } from '../src/server/services/backup'
 import { parseOdds } from '../src/shared/maths/odds'
+import {
+  listOpenRouterModels,
+  openRouterApiKeyFromRequest,
+  providerConfigurationFromRequest,
+  testOpenRouterConfiguration,
+} from '../src/server/llm/configuration'
+import {
+  normalizeSavedOpenRouterModels,
+  reasoningEffortSchema,
+} from '../src/shared/schemas/openrouter'
+import {
+  getApplicationSettings,
+  updateApplicationSettings,
+} from '../src/server/repositories/settings'
 
 const app = new Hono<{
   Bindings: Bindings
   Variables: { accessIdentity: AccessIdentity }
 }>()
+
+const isUniqueConstraintError = (error: unknown) =>
+  error instanceof Error && /unique constraint failed/i.test(error.message)
+
+const isForeignKeyConstraintError = (error: unknown) =>
+  error instanceof Error && /foreign key constraint failed/i.test(error.message)
 
 app.use('/api/*', logger())
 
@@ -98,6 +119,94 @@ app.get('/api/status', (c) =>
     timezone: 'Australia/Sydney',
   }),
 )
+
+app.get('/api/settings', async (c) =>
+  c.json({ settings: await getApplicationSettings(c.env.DB) }),
+)
+
+const applicationSettingsSchema = z
+  .object({
+    currentBankrollCents: z.number().int().min(0).max(1_000_000_000).optional(),
+    defaultUnitValueCents: z.number().int().min(1).max(1_000_000).optional(),
+    preferredOpenRouterModel: z.string().trim().max(240).nullable().optional(),
+    savedOpenRouterModels: z
+      .array(z.string().trim().min(1).max(240))
+      .max(50)
+      .transform(normalizeSavedOpenRouterModels)
+      .optional(),
+    openRouterReasoningEffort: reasoningEffortSchema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one setting is required',
+  })
+
+app.patch('/api/settings', async (c) => {
+  const parsed = applicationSettingsSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      {
+        error: 'Invalid application settings',
+        details: parsed.error.flatten().fieldErrors,
+      },
+      400,
+    )
+  }
+  return c.json({
+    settings: await updateApplicationSettings(
+      c.env.DB,
+      parsed.data,
+      c.get('accessIdentity').email,
+    ),
+  })
+})
+
+app.post('/api/settings/openrouter/test', async (c) => {
+  try {
+    const configuration = providerConfigurationFromRequest(c.req.raw, c.env)
+    if (!configuration) {
+      return c.json(
+        { error: 'Enter an OpenRouter API key and model in Settings' },
+        400,
+      )
+    }
+    return c.json({
+      connection: await testOpenRouterConfiguration(configuration),
+    })
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'OpenRouter connection check failed',
+      },
+      422,
+    )
+  }
+})
+
+app.post('/api/settings/openrouter/models', async (c) => {
+  try {
+    const apiKey = openRouterApiKeyFromRequest(c.req.raw)
+    if (!apiKey) {
+      return c.json(
+        { error: 'Enter an OpenRouter API key before loading models' },
+        400,
+      )
+    }
+    return c.json({ models: await listOpenRouterModels(apiKey) })
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'OpenRouter models could not be loaded',
+      },
+      422,
+    )
+  }
+})
 
 app.get('/api/analytics/bets', async (c) =>
   c.json({ bets: await listAnalyticsBets(c.env.DB) }),
@@ -129,7 +238,13 @@ app.post('/api/cards/fetch-preview', async (c) => {
   if (!parsed.success)
     return c.json({ error: 'Enter a valid UFC event URL' }, 400)
   try {
-    return c.json({ preview: await fetchCardPreview(c.env, parsed.data.url) })
+    return c.json({
+      preview: await fetchCardPreview(
+        c.env,
+        parsed.data.url,
+        providerConfigurationFromRequest(c.req.raw, c.env),
+      ),
+    })
   } catch (error) {
     return c.json(
       { error: error instanceof Error ? error.message : 'Card fetch failed' },
@@ -183,6 +298,22 @@ app.patch('/api/cards/:cardId', async (c) => {
   return c.json({ card })
 })
 
+app.delete('/api/cards/:cardId', async (c) => {
+  try {
+    await softDeleteCard(
+      c.env.DB,
+      c.req.param('cardId'),
+      c.get('accessIdentity').email,
+    )
+    return c.json({ deleted: true })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Card not found') {
+      return c.json({ error: error.message }, 404)
+    }
+    throw error
+  }
+})
+
 app.get('/api/fights', async (c) => {
   const cardId = c.req.query('cardId')
   if (!cardId) return c.json({ error: 'cardId is required' }, 400)
@@ -219,8 +350,21 @@ app.post('/api/fights', async (c) => {
     )
   }
 
-  const fight = await createFight(c.env.DB, parsed.data)
-  return c.json({ fight }, 201)
+  try {
+    const fight = await createFight(c.env.DB, parsed.data)
+    return c.json({ fight }, 201)
+  } catch (error) {
+    return c.json(
+      {
+        error: isForeignKeyConstraintError(error)
+          ? 'The selected card no longer exists'
+          : error instanceof Error
+            ? error.message
+            : 'Fight creation failed',
+      },
+      422,
+    )
+  }
 })
 
 const updateFightSchema = fightInputSchema
@@ -349,8 +493,19 @@ app.post('/api/cappers', async (c) => {
     )
   }
 
-  const capper = await createCapper(c.env.DB, parsed.data)
-  return c.json({ capper }, 201)
+  try {
+    const capper = await createCapper(c.env.DB, parsed.data)
+    return c.json({ capper }, 201)
+  } catch (error) {
+    return c.json(
+      {
+        error: isUniqueConstraintError(error)
+          ? 'A capper with that name already exists'
+          : 'Capper creation failed',
+      },
+      409,
+    )
+  }
 })
 
 app.patch('/api/cappers/:capperId', async (c) => {
@@ -361,9 +516,26 @@ app.patch('/api/cappers/:capperId', async (c) => {
     })
     .safeParse(await c.req.json())
   if (!parsed.success) return c.json({ error: 'Invalid capper update' }, 400)
-  return c.json({
-    capper: await updateCapper(c.env.DB, c.req.param('capperId'), parsed.data),
-  })
+  try {
+    return c.json({
+      capper: await updateCapper(
+        c.env.DB,
+        c.req.param('capperId'),
+        parsed.data,
+      ),
+    })
+  } catch (error) {
+    return c.json(
+      {
+        error: isUniqueConstraintError(error)
+          ? 'A capper with that name already exists'
+          : error instanceof Error
+            ? error.message
+            : 'Capper update failed',
+      },
+      422,
+    )
+  }
 })
 
 const aliasSchema = z.object({
@@ -390,7 +562,15 @@ app.post('/api/fighter-aliases', async (c) => {
     )
   } catch (error) {
     return c.json(
-      { error: error instanceof Error ? error.message : 'Alias failed' },
+      {
+        error: isUniqueConstraintError(error)
+          ? 'That transcript spelling is already saved for this fighter'
+          : isForeignKeyConstraintError(error)
+            ? 'The selected fighter no longer exists'
+            : error instanceof Error
+              ? error.message
+              : 'Alias failed',
+      },
       422,
     )
   }
@@ -415,7 +595,15 @@ app.post('/api/capper-aliases', async (c) => {
     )
   } catch (error) {
     return c.json(
-      { error: error instanceof Error ? error.message : 'Alias failed' },
+      {
+        error: isUniqueConstraintError(error)
+          ? 'That alternate name is already saved for this capper'
+          : isForeignKeyConstraintError(error)
+            ? 'The selected capper no longer exists'
+            : error instanceof Error
+              ? error.message
+              : 'Alias failed',
+      },
       422,
     )
   }
@@ -446,8 +634,19 @@ app.post('/api/sources', async (c) => {
     )
   }
 
-  const source = await createSource(c.env.DB, parsed.data)
-  return c.json({ source }, 201)
+  try {
+    const source = await createSource(c.env.DB, parsed.data)
+    return c.json({ source }, 201)
+  } catch (error) {
+    return c.json(
+      {
+        error: isForeignKeyConstraintError(error)
+          ? 'The selected card or capper no longer exists'
+          : 'Source creation failed',
+      },
+      422,
+    )
+  }
 })
 
 app.patch('/api/sources/:sourceId', async (c) => {
@@ -455,18 +654,31 @@ app.patch('/api/sources/:sourceId', async (c) => {
     .omit({ cardId: true })
     .safeParse(await c.req.json())
   if (!parsed.success) return c.json({ error: 'Invalid source update' }, 400)
-  const source = await updateSource(
-    c.env.DB,
-    c.req.param('sourceId'),
-    {
-      ...parsed.data,
-      primaryCapperId: parsed.data.primaryCapperId ?? null,
-      sourceUrl: parsed.data.sourceUrl ?? null,
-      title: parsed.data.title ?? null,
-    },
-    c.get('accessIdentity').email,
-  )
-  return c.json({ source })
+  try {
+    const source = await updateSource(
+      c.env.DB,
+      c.req.param('sourceId'),
+      {
+        ...parsed.data,
+        primaryCapperId: parsed.data.primaryCapperId ?? null,
+        sourceUrl: parsed.data.sourceUrl ?? null,
+        title: parsed.data.title ?? null,
+      },
+      c.get('accessIdentity').email,
+    )
+    return c.json({ source })
+  } catch (error) {
+    return c.json(
+      {
+        error: isForeignKeyConstraintError(error)
+          ? 'The selected capper no longer exists'
+          : error instanceof Error
+            ? error.message
+            : 'Source update failed',
+      },
+      422,
+    )
+  }
 })
 
 app.get('/api/extractions', async (c) => {
@@ -477,7 +689,11 @@ app.get('/api/extractions', async (c) => {
 
 app.post('/api/sources/:sourceId/parse', async (c) => {
   try {
-    const run = await parseSource(c.env, c.req.param('sourceId'))
+    const run = await parseSource(
+      c.env,
+      c.req.param('sourceId'),
+      providerConfigurationFromRequest(c.req.raw, c.env),
+    )
     return c.json({ run }, 201)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Extraction failed'
@@ -555,11 +771,20 @@ app.post('/api/market-prices', async (c) => {
     )
   }
 
-  const price = await createMarketPrice(c.env.DB, {
-    ...parsed.data,
-    decimalOdds: decimalOdds.toFixed(4),
-  })
-  return c.json({ price }, 201)
+  try {
+    const price = await createMarketPrice(c.env.DB, {
+      ...parsed.data,
+      decimalOdds: decimalOdds.toFixed(4),
+    })
+    return c.json({ price }, 201)
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : 'Price creation failed',
+      },
+      422,
+    )
+  }
 })
 
 app.delete('/api/market-prices/:priceId', async (c) => {
@@ -580,7 +805,11 @@ app.delete('/api/market-prices/:priceId', async (c) => {
 
 app.post('/api/cards/:cardId/syntheses', async (c) => {
   try {
-    const synthesis = await synthesiseCard(c.env, c.req.param('cardId'))
+    const synthesis = await synthesiseCard(
+      c.env,
+      c.req.param('cardId'),
+      providerConfigurationFromRequest(c.req.raw, c.env),
+    )
     return c.json({ synthesis }, 201)
   } catch (error) {
     return c.json(
@@ -646,10 +875,10 @@ const manualBetSchema = z
         path: ['legs'],
       })
     }
-    if (input.marketType !== 'parlay' && (input.legs?.length ?? 0) > 0) {
+    if (input.marketType !== 'parlay' && (input.legs?.length ?? 0) > 1) {
       context.addIssue({
         code: 'custom',
-        message: 'Only a parlay may contain structured legs',
+        message: 'A single bet may contain at most one structured leg',
         path: ['legs'],
       })
     }

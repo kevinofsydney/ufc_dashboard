@@ -101,6 +101,10 @@ async function callOpenRouter<T>(
         model: configuration.model,
         messages: request.messages,
         temperature: request.temperature ?? 0,
+        ...(configuration.reasoningEffort &&
+        configuration.reasoningEffort !== 'default'
+          ? { reasoning: { effort: configuration.reasoningEffort } }
+          : {}),
         response_format: {
           type: 'json_schema',
           json_schema: {

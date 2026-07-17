@@ -5,21 +5,8 @@ import {
 } from '../../shared/schemas/card-fetch'
 import type { Bindings } from '../env'
 import { callModel } from '../llm/call-model'
+import { providerConfigurationFromEnv } from '../llm/configuration'
 import type { ProviderConfiguration } from '../llm/provider'
-
-function providerConfiguration(env: Bindings): ProviderConfiguration | null {
-  const provider = env.LLM_PROVIDER
-  const model = env.LLM_MODEL
-  const apiKey =
-    provider === 'anthropic'
-      ? env.ANTHROPIC_API_KEY
-      : provider === 'openrouter'
-        ? env.OPENROUTER_API_KEY
-        : undefined
-  return provider && model && apiKey
-    ? { provider, model, apiKey, appOrigin: env.APP_ORIGIN }
-    : null
-}
 
 function objectValues(value: unknown): unknown[] {
   if (Array.isArray(value)) return value.flatMap(objectValues)
@@ -71,6 +58,8 @@ function structuredPreview(html: string): CardFetchResult | null {
             {
               fighter_a: competitors[0] as string,
               fighter_b: competitors[1] as string,
+              fighter_a_odds_raw: null,
+              fighter_b_odds_raw: null,
               weight_class: null,
               bout_order: index + 1,
               is_main_event: index === 0 ? true : null,
@@ -108,6 +97,7 @@ function strippedPageText(html: string): string {
 export async function fetchCardPreview(
   env: Bindings,
   rawUrl: string,
+  configurationOverride?: ProviderConfiguration | null,
 ): Promise<CardFetchResult> {
   const url = new URL(rawUrl)
   if (url.protocol !== 'https:' || !/(^|\.)ufc\.com$/i.test(url.hostname)) {
@@ -123,7 +113,8 @@ export async function fetchCardPreview(
   const structured = structuredPreview(html)
   if (structured) return structured
 
-  const configuration = providerConfiguration(env)
+  const configuration =
+    configurationOverride ?? providerConfigurationFromEnv(env)
   if (!configuration) {
     throw new Error(
       'Structured event data was unavailable; configure the LLM fallback or enter the card manually',

@@ -24,6 +24,7 @@ import {
   type ExtractionRun,
   type Source,
 } from '../api'
+import { HelpTooltip } from './HelpTooltip'
 
 export function SourcesWorkspace() {
   const [cards, setCards] = useState<Card[]>([])
@@ -91,9 +92,10 @@ export function SourcesWorkspace() {
 
   const handleSourceSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const formElement = event.currentTarget
     setSavingSource(true)
     setError(null)
-    const form = new FormData(event.currentTarget)
+    const form = new FormData(formElement)
     const capperId = String(form.get('primaryCapperId') ?? '')
     const sourceUrl = String(form.get('sourceUrl') ?? '').trim()
     const title = String(form.get('title') ?? '').trim()
@@ -122,7 +124,7 @@ export function SourcesWorkspace() {
           : [{ ...source, primaryCapperName: capperName }, ...current],
       )
       setEditingSource(null)
-      event.currentTarget.reset()
+      formElement.reset()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -136,9 +138,10 @@ export function SourcesWorkspace() {
 
   const handleCapperSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    const formElement = event.currentTarget
     setSavingCapper(true)
     setError(null)
-    const form = new FormData(event.currentTarget)
+    const form = new FormData(formElement)
     try {
       const capper = await postCapper({
         name: String(form.get('capperName') ?? '').trim(),
@@ -146,7 +149,7 @@ export function SourcesWorkspace() {
       setCappers((current) =>
         [...current, capper].sort((a, b) => a.name.localeCompare(b.name)),
       )
-      event.currentTarget.reset()
+      formElement.reset()
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -343,8 +346,14 @@ export function SourcesWorkspace() {
               <BookOpenText size={19} />
             </div>
             <div>
-              <p className="section-kicker">Evidence</p>
-              <h2>{editingSource ? 'Edit source' : 'Add a source'}</h2>
+              <div className="heading-with-help">
+                <h2>{editingSource ? 'Edit source' : 'Add a source'}</h2>
+                <HelpTooltip
+                  label="Add a source"
+                  text="Choose individual for one capper, aggregator for relayed named picks, or stats tracker for aggregate counts. Save first, then parse."
+                  align="left"
+                />
+              </div>
             </div>
           </div>
 
@@ -461,8 +470,14 @@ export function SourcesWorkspace() {
         <div className="records-card">
           <div className="section-heading">
             <div>
-              <p className="section-kicker">Review queue</p>
-              <h2>Saved sources</h2>
+              <div className="heading-with-help">
+                <h2>Saved sources</h2>
+                <HelpTooltip
+                  label="Saved sources"
+                  text="Parse a saved source, open any run marked needs review, correct its structured JSON, and accept it before it can influence synthesis."
+                  align="left"
+                />
+              </div>
             </div>
             <span className="quiet-badge">{sources.length} sources</span>
           </div>
@@ -563,8 +578,16 @@ export function SourcesWorkspace() {
         >
           <div className="section-heading">
             <div>
-              <p className="section-kicker">Human verification required</p>
-              <h2 id="extraction-review-title">Review structured extraction</h2>
+              <div className="heading-with-help">
+                <h2 id="extraction-review-title">
+                  Review structured extraction
+                </h2>
+                <HelpTooltip
+                  label="Review structured extraction"
+                  text="Verify fighter, fight, capper, market, confidence, method, and round values. Acceptance makes this run active; the raw response stays auditable."
+                  align="left"
+                />
+              </div>
             </div>
             <button
               className="button button--secondary button--compact"

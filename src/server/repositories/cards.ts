@@ -47,6 +47,7 @@ export async function listCards(db: Bindings['DB']): Promise<CardRecord[]> {
       `SELECT id, name, event_starts_at_utc, display_timezone, budget_units,
               unit_value_cents, currency, lifecycle, created_at, updated_at
        FROM cards
+       WHERE deleted_at IS NULL
        ORDER BY COALESCE(event_starts_at_utc, created_at) DESC`,
     )
     .all<CardRow>()
@@ -152,4 +153,40 @@ export async function updateCard(
     .first<CardRow>()
   if (!row) throw new Error('Card not found')
   return mapCard(row)
+}
+
+export async function softDeleteCard(
+  db: Bindings['DB'],
+  cardId: string,
+  actorEmail: string,
+): Promise<void> {
+  const existing = await db
+    .prepare('SELECT id, name FROM cards WHERE id = ? AND deleted_at IS NULL')
+    .bind(cardId)
+    .first<{ id: string; name: string }>()
+  if (!existing) throw new Error('Card not found')
+
+  const now = new Date().toISOString()
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE cards
+         SET deleted_at = ?, updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .bind(now, now, cardId),
+    db
+      .prepare(
+        `INSERT INTO audit_events (
+           id, entity_type, entity_id, action, actor_email, details_json, created_at
+         ) VALUES (?, 'card', ?, 'deleted', ?, ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        cardId,
+        actorEmail,
+        JSON.stringify({ name: existing.name, softDelete: true }),
+        now,
+      ),
+  ])
 }

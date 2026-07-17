@@ -1,13 +1,20 @@
 import {
   CalendarPlus,
+  Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   LoaderCircle,
   Plus,
   Swords,
+  Trash2,
+  X,
 } from 'lucide-react'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getCards,
+  getApplicationSettings,
+  deleteCard,
   getFighterAliases,
   getFights,
   hideFight,
@@ -17,13 +24,32 @@ import {
   postCard,
   postFighterAlias,
   postFight,
+  postMarketPrice,
   type Alias,
   type Card,
   type CardFetchPreview,
   type Fight,
 } from '../api'
+import { HelpTooltip } from './HelpTooltip'
+
+const UFC_WEIGHT_CLASSES = [
+  "Women's Strawweight",
+  "Women's Flyweight",
+  "Women's Bantamweight",
+  "Women's Featherweight",
+  'Flyweight',
+  'Bantamweight',
+  'Featherweight',
+  'Lightweight',
+  'Welterweight',
+  'Middleweight',
+  'Light Heavyweight',
+  'Heavyweight',
+  'Catchweight',
+] as const
 
 export function CardWorkspace() {
+  const manualBuilderRef = useRef<HTMLDetailsElement>(null)
   const [cards, setCards] = useState<Card[]>([])
   const [fights, setFights] = useState<Fight[]>([])
   const [fighterAliases, setFighterAliases] = useState<Alias[]>([])
@@ -35,14 +61,21 @@ export function CardWorkspace() {
   const [saving, setSaving] = useState(false)
   const [savingFight, setSavingFight] = useState(false)
   const [savingEditId, setSavingEditId] = useState<string | null>(null)
+  const [pendingDeleteCardId, setPendingDeleteCardId] = useState<string | null>(
+    null,
+  )
+  const [deletingCardId, setDeletingCardId] = useState<string | null>(null)
   const [fetchingCard, setFetchingCard] = useState(false)
+  const [createUnitValue, setCreateUnitValue] = useState('10.00')
+  const [importPreviewOdds, setImportPreviewOdds] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([getCards(), getFighterAliases()])
-      .then(([nextCards, nextAliases]) => {
+    Promise.all([getCards(), getFighterAliases(), getApplicationSettings()])
+      .then(([nextCards, nextAliases, settings]) => {
         setCards(nextCards)
         setFighterAliases(nextAliases)
+        setCreateUnitValue((settings.defaultUnitValueCents / 100).toFixed(2))
         setSelectedCardId((current) => current || nextCards[0]?.id || '')
       })
       .catch((requestError: unknown) =>
@@ -67,6 +100,47 @@ export function CardWorkspace() {
         ),
       )
   }, [selectedCardId])
+
+  const handleOpenCard = (cardId: string) => {
+    setSelectedCardId(cardId)
+    setPendingDeleteCardId(null)
+
+    const manualBuilder = manualBuilderRef.current
+    if (!manualBuilder) return
+
+    manualBuilder.open = true
+    window.requestAnimationFrame(() => {
+      manualBuilder.scrollIntoView({
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth',
+        block: 'start',
+      })
+    })
+  }
+
+  const handleDeleteCard = async (cardId: string) => {
+    setDeletingCardId(cardId)
+    setError(null)
+    try {
+      await deleteCard(cardId)
+      const remainingCards = cards.filter((card) => card.id !== cardId)
+      setCards(remainingCards)
+      setPendingDeleteCardId(null)
+      if (selectedCardId === cardId) {
+        setFights([])
+        setSelectedCardId(remainingCards[0]?.id ?? '')
+      }
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Card could not be deleted',
+      )
+    } finally {
+      setDeletingCardId(null)
+    }
+  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -102,6 +176,7 @@ export function CardWorkspace() {
     const form = new FormData(event.currentTarget)
     setFetchingCard(true)
     setError(null)
+    setImportPreviewOdds(false)
     try {
       setFetchPreview(
         await fetchCardPreview(String(form.get('eventUrl') ?? '')),
@@ -115,6 +190,42 @@ export function CardWorkspace() {
     } finally {
       setFetchingCard(false)
     }
+  }
+
+  const importBoutPageOdds = async (
+    cardId: string,
+    fight: Fight,
+    bout: CardFetchPreview['bouts'][number],
+  ): Promise<boolean> => {
+    if (!importPreviewOdds) return true
+    let complete = true
+    const prices = [
+      {
+        raw: bout.fighter_a_odds_raw,
+        fighter: fight.fighterA,
+      },
+      {
+        raw: bout.fighter_b_odds_raw,
+        fighter: fight.fighterB,
+      },
+    ]
+    for (const price of prices) {
+      if (!price.raw || price.raw === '-') continue
+      try {
+        await postMarketPrice({
+          cardId,
+          fightId: fight.id,
+          bookmaker: 'UFC event page',
+          marketType: 'moneyline',
+          selectionFighterId: price.fighter.id,
+          selectionText: price.fighter.name,
+          oddsInput: price.raw,
+        })
+      } catch {
+        complete = false
+      }
+    }
+    return complete
   }
 
   const handleImportPreview = async () => {
@@ -132,25 +243,32 @@ export function CardWorkspace() {
             ? parsedDate.toISOString()
             : null,
         budgetUnits: 30,
-        unitValueCents: 1000,
+        unitValueCents: Math.round(Number(createUnitValue) * 100),
       })
       const importedFights: Fight[] = []
+      let pricesComplete = true
       for (const bout of fetchPreview.bouts) {
-        importedFights.push(
-          await postFight({
-            cardId: card.id,
-            fighterAName: bout.fighter_a,
-            fighterBName: bout.fighter_b,
-            weightClass: bout.weight_class,
-            boutOrder: bout.bout_order,
-            isMainEvent: bout.is_main_event ?? false,
-          }),
-        )
+        const fight = await postFight({
+          cardId: card.id,
+          fighterAName: bout.fighter_a,
+          fighterBName: bout.fighter_b,
+          weightClass: bout.weight_class,
+          boutOrder: bout.bout_order,
+          isMainEvent: bout.is_main_event ?? false,
+        })
+        importedFights.push(fight)
+        pricesComplete =
+          (await importBoutPageOdds(card.id, fight, bout)) && pricesComplete
       }
       setCards((current) => [card, ...current])
       setSelectedCardId(card.id)
       setFights(importedFights)
       setFetchPreview(null)
+      if (!pricesComplete) {
+        setError(
+          'The card was imported, but at least one page price was invalid. Review the Odds Board and enter the current bookmaker price.',
+        )
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -204,17 +322,20 @@ export function CardWorkspace() {
     setError(null)
     try {
       const created: Fight[] = []
+      let pricesComplete = true
       for (const bout of additions) {
-        created.push(
-          await postFight({
-            cardId: selectedCardId,
-            fighterAName: bout.fighter_a,
-            fighterBName: bout.fighter_b,
-            weightClass: bout.weight_class,
-            boutOrder: bout.bout_order,
-            isMainEvent: bout.is_main_event ?? false,
-          }),
-        )
+        const fight = await postFight({
+          cardId: selectedCardId,
+          fighterAName: bout.fighter_a,
+          fighterBName: bout.fighter_b,
+          weightClass: bout.weight_class,
+          boutOrder: bout.bout_order,
+          isMainEvent: bout.is_main_event ?? false,
+        })
+        created.push(fight)
+        pricesComplete =
+          (await importBoutPageOdds(selectedCardId, fight, bout)) &&
+          pricesComplete
       }
       setFights((current) =>
         [...current, ...created].sort(
@@ -224,6 +345,11 @@ export function CardWorkspace() {
         ),
       )
       setFetchPreview(null)
+      if (!pricesComplete) {
+        setError(
+          'The fights were added, but at least one page price was invalid. Review the Odds Board before synthesis.',
+        )
+      }
     } catch (requestError) {
       setError(
         requestError instanceof Error
@@ -423,13 +549,41 @@ export function CardWorkspace() {
             <ol>
               {previewDiff.bouts.map((bout) => (
                 <li key={`${bout.fighter_a}-${bout.fighter_b}`}>
-                  {bout.fighter_a} vs {bout.fighter_b}
+                  <div>
+                    <strong>
+                      {bout.fighter_a} vs {bout.fighter_b}
+                    </strong>
+                    {(bout.fighter_a_odds_raw || bout.fighter_b_odds_raw) && (
+                      <span className="preview-odds">
+                        Page odds: {bout.fighter_a}{' '}
+                        {bout.fighter_a_odds_raw ?? '—'} · {bout.fighter_b}{' '}
+                        {bout.fighter_b_odds_raw ?? '—'}
+                      </span>
+                    )}
+                  </div>
                   <span className="quiet-badge">
                     {bout.alreadyPresent ? 'already on card' : 'new bout'}
                   </span>
                 </li>
               ))}
             </ol>
+            {fetchPreview.bouts.some(
+              (bout) => bout.fighter_a_odds_raw || bout.fighter_b_odds_raw,
+            ) && (
+              <label className="import-odds-option">
+                <input
+                  type="checkbox"
+                  checked={importPreviewOdds}
+                  onChange={(event) =>
+                    setImportPreviewOdds(event.target.checked)
+                  }
+                />
+                <span>
+                  Import UFC-page moneylines for newly imported bouts to the
+                  Odds Board as a reviewed snapshot
+                </span>
+              </label>
+            )}
             {previewDiff.absentFromPreview.length > 0 && selectedCard && (
               <p className="form-message form-message--warning">
                 {previewDiff.absentFromPreview.length} existing bout(s) are not
@@ -468,8 +622,14 @@ export function CardWorkspace() {
               <CalendarPlus size={19} />
             </div>
             <div>
-              <p className="section-kicker">Manual first</p>
-              <h2>Create a card</h2>
+              <div className="heading-with-help">
+                <h2>Create a card</h2>
+                <HelpTooltip
+                  label="Create a card"
+                  text="Create one record per UFC event. The budget is the maximum proposed slate, and unit value converts results to AUD."
+                  align="left"
+                />
+              </div>
             </div>
           </div>
 
@@ -515,7 +675,8 @@ export function CardWorkspace() {
                   type="number"
                   min="0.01"
                   step="0.01"
-                  defaultValue="10.00"
+                  value={createUnitValue}
+                  onChange={(event) => setCreateUnitValue(event.target.value)}
                   required
                 />
               </div>
@@ -541,7 +702,6 @@ export function CardWorkspace() {
         <div className="records-card">
           <div className="section-heading">
             <div>
-              <p className="section-kicker">Saved locally</p>
               <h2>Your cards</h2>
             </div>
             <span className="quiet-badge">{cards.length} total</span>
@@ -562,26 +722,92 @@ export function CardWorkspace() {
             <div className="record-list">
               {cards.map((card) => (
                 <article className="record-row" key={card.id}>
-                  <div className="record-status">
-                    <CheckCircle2 size={17} />
+                  <button
+                    className="card-open-button"
+                    type="button"
+                    aria-label={`View ${card.name} fights`}
+                    aria-pressed={selectedCardId === card.id}
+                    onClick={() => handleOpenCard(card.id)}
+                  >
+                    <div className="record-status">
+                      <CheckCircle2 size={17} />
+                    </div>
+                    <div>
+                      <strong>{card.name}</strong>
+                      <span>
+                        {card.eventStartsAtUtc
+                          ? new Intl.DateTimeFormat('en-AU', {
+                              dateStyle: 'medium',
+                              timeStyle: 'short',
+                              timeZone: card.displayTimezone,
+                            }).format(new Date(card.eventStartsAtUtc))
+                          : 'Date not set'}
+                      </span>
+                    </div>
+                    <div className="record-metric">
+                      <strong>{card.budgetUnits}u</strong>
+                      <span>
+                        AUD {(card.unitValueCents / 100).toFixed(2)}/u
+                      </span>
+                    </div>
+                    <span className="status-chip">{card.lifecycle}</span>
+                    <ChevronRight
+                      className="card-open-button__chevron"
+                      size={17}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <div className="card-delete-control">
+                    {pendingDeleteCardId === card.id ? (
+                      <div
+                        className="card-delete-confirmation"
+                        role="group"
+                        aria-label={`Confirm deletion of ${card.name}`}
+                      >
+                        <span>Are you sure?</span>
+                        <div className="card-delete-confirmation__actions">
+                          <button
+                            className="card-delete-confirmation__button card-delete-confirmation__button--confirm"
+                            type="button"
+                            aria-label={`Confirm deletion of ${card.name}`}
+                            title="Confirm deletion"
+                            disabled={deletingCardId === card.id}
+                            onClick={() => void handleDeleteCard(card.id)}
+                          >
+                            {deletingCardId === card.id ? (
+                              <LoaderCircle
+                                className="spin"
+                                size={14}
+                                aria-hidden="true"
+                              />
+                            ) : (
+                              <Check size={15} aria-hidden="true" />
+                            )}
+                          </button>
+                          <button
+                            className="card-delete-confirmation__button card-delete-confirmation__button--cancel"
+                            type="button"
+                            aria-label="Cancel card deletion"
+                            title="Cancel"
+                            disabled={deletingCardId === card.id}
+                            onClick={() => setPendingDeleteCardId(null)}
+                          >
+                            <X size={15} aria-hidden="true" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        className="card-delete-button"
+                        type="button"
+                        aria-label={`Delete ${card.name}`}
+                        title="Delete card"
+                        onClick={() => setPendingDeleteCardId(card.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </div>
-                  <div>
-                    <strong>{card.name}</strong>
-                    <span>
-                      {card.eventStartsAtUtc
-                        ? new Intl.DateTimeFormat('en-AU', {
-                            dateStyle: 'medium',
-                            timeStyle: 'short',
-                            timeZone: card.displayTimezone,
-                          }).format(new Date(card.eventStartsAtUtc))
-                        : 'Date not set'}
-                    </span>
-                  </div>
-                  <div className="record-metric">
-                    <strong>{card.budgetUnits}u</strong>
-                    <span>AUD {(card.unitValueCents / 100).toFixed(2)}/u</span>
-                  </div>
-                  <span className="status-chip">{card.lifecycle}</span>
                 </article>
               ))}
             </div>
@@ -589,274 +815,320 @@ export function CardWorkspace() {
         </div>
       </section>
 
-      <section className="bout-workspace">
-        <div className="section-heading">
+      <details
+        className="bout-workspace collapsible-workspace"
+        ref={manualBuilderRef}
+      >
+        <summary className="collapsible-workspace__summary">
           <div>
-            <p className="section-kicker">Manual bout list</p>
-            <h2>Build the card</h2>
+            <h2>Build a card manually</h2>
           </div>
-          <label className="field bout-card-select">
-            <span>Card</span>
-            <select
-              value={selectedCardId}
-              onChange={(event) => setSelectedCardId(event.target.value)}
-            >
-              {cards.length === 0 && (
-                <option value="">Create a card first</option>
-              )}
-              {cards.map((card) => (
-                <option key={card.id} value={card.id}>
-                  {card.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+          <ChevronDown
+            className="collapsible-workspace__chevron"
+            size={19}
+            aria-hidden="true"
+          />
+        </summary>
 
-        {selectedCard && (
-          <form
-            className="card-maintenance-form"
-            key={`${selectedCard.id}:${selectedCard.updatedAt}`}
-            onSubmit={handleCardUpdate}
-          >
-            <label className="field">
-              <span>Selected event name</span>
-              <input name="name" defaultValue={selectedCard.name} required />
-            </label>
-            <label className="field">
-              <span>Event date and time</span>
-              <input
-                name="eventStartsAt"
-                type="datetime-local"
-                defaultValue={
-                  selectedCard.eventStartsAtUtc
-                    ? new Date(
-                        new Date(selectedCard.eventStartsAtUtc).getTime() -
-                          new Date(
-                            selectedCard.eventStartsAtUtc,
-                          ).getTimezoneOffset() *
-                            60_000,
-                      )
-                        .toISOString()
-                        .slice(0, 16)
-                    : ''
-                }
-              />
-            </label>
-            <label className="field">
-              <span>Budget units</span>
-              <input
-                name="budgetUnits"
-                type="number"
-                min="0"
-                defaultValue={selectedCard.budgetUnits}
-                required
-              />
-            </label>
-            <label className="field">
-              <span>Unit value AUD</span>
-              <input
-                name="unitValue"
-                type="number"
-                min="0.01"
-                step="0.01"
-                defaultValue={(selectedCard.unitValueCents / 100).toFixed(2)}
-                required
-              />
-            </label>
-            <label className="field">
-              <span>Lifecycle</span>
-              <select name="lifecycle" defaultValue={selectedCard.lifecycle}>
-                <option value="draft">Draft</option>
-                <option value="ready">Ready</option>
-                <option value="in_progress">In progress</option>
-                <option value="completed">Completed</option>
-                <option value="cancelled">Cancelled</option>
+        <div className="collapsible-workspace__content">
+          <div className="collapsible-workspace__toolbar">
+            <p>
+              Use this when you need to add or correct the official fight list
+              by hand.
+            </p>
+            <label className="field bout-card-select">
+              <span>Card</span>
+              <select
+                value={selectedCardId}
+                onChange={(event) => setSelectedCardId(event.target.value)}
+              >
+                {cards.length === 0 && (
+                  <option value="">Create a card first</option>
+                )}
+                {cards.map((card) => (
+                  <option key={card.id} value={card.id}>
+                    {card.name}
+                  </option>
+                ))}
               </select>
             </label>
-            <button
-              className="button button--secondary button--compact"
-              disabled={savingEditId === selectedCard.id}
-            >
-              Save card changes
-            </button>
-          </form>
-        )}
+          </div>
 
-        <div className="bout-layout">
-          <form className="bout-form" onSubmit={handleFightSubmit}>
-            <div className="field-row">
-              <label className="field">
-                <span>Fighter A</span>
-                <input
-                  name="fighterAName"
-                  required
-                  maxLength={120}
-                  placeholder="Canonical name"
-                />
-              </label>
-              <label className="field">
-                <span>Fighter B</span>
-                <input
-                  name="fighterBName"
-                  required
-                  maxLength={120}
-                  placeholder="Canonical name"
-                />
-              </label>
-            </div>
-            <div className="field-row bout-details-row">
-              <label className="field">
-                <span>Weight class</span>
-                <input
-                  name="weightClass"
-                  maxLength={120}
-                  placeholder="Lightweight"
-                />
-              </label>
-              <label className="field">
-                <span>Bout order</span>
-                <input name="boutOrder" type="number" min="1" max="100" />
-              </label>
-            </div>
-            <label className="check-field">
-              <input name="isMainEvent" type="checkbox" />
-              <span>Main event</span>
-            </label>
-            <button
-              className="button button--primary button--full"
-              type="submit"
-              disabled={savingFight || !selectedCardId}
+          {selectedCard && (
+            <form
+              className="card-maintenance-form"
+              key={`${selectedCard.id}:${selectedCard.updatedAt}`}
+              onSubmit={handleCardUpdate}
             >
-              {savingFight ? (
-                <LoaderCircle className="spin" size={17} />
+              <label className="field">
+                <span>Selected event name</span>
+                <input name="name" defaultValue={selectedCard.name} required />
+              </label>
+              <label className="field">
+                <span>Event date and time</span>
+                <input
+                  name="eventStartsAt"
+                  type="datetime-local"
+                  defaultValue={
+                    selectedCard.eventStartsAtUtc
+                      ? new Date(
+                          new Date(selectedCard.eventStartsAtUtc).getTime() -
+                            new Date(
+                              selectedCard.eventStartsAtUtc,
+                            ).getTimezoneOffset() *
+                              60_000,
+                        )
+                          .toISOString()
+                          .slice(0, 16)
+                      : ''
+                  }
+                />
+              </label>
+              <label className="field">
+                <span>Budget units</span>
+                <input
+                  name="budgetUnits"
+                  type="number"
+                  min="0"
+                  defaultValue={selectedCard.budgetUnits}
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>Unit value AUD</span>
+                <input
+                  name="unitValue"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  defaultValue={(selectedCard.unitValueCents / 100).toFixed(2)}
+                  required
+                />
+              </label>
+              <label className="field">
+                <span>Lifecycle</span>
+                <select name="lifecycle" defaultValue={selectedCard.lifecycle}>
+                  <option value="draft">Draft</option>
+                  <option value="ready">Ready</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </label>
+              <button
+                className="button button--secondary button--compact"
+                disabled={savingEditId === selectedCard.id}
+              >
+                Save card changes
+              </button>
+            </form>
+          )}
+
+          <div className="bout-layout">
+            <div className="bout-list">
+              {fights.length === 0 ? (
+                <div className="empty-state empty-state--compact">
+                  <Swords size={24} />
+                  <p>No fights on this card</p>
+                  <span>
+                    Add official participant names before adding sources.
+                  </span>
+                </div>
               ) : (
-                <Plus size={17} />
+                fights.map((fight) => (
+                  <form
+                    className="bout-edit-row"
+                    key={`${fight.id}:${fight.updatedAt ?? ''}`}
+                    onSubmit={(event) => void handleFightUpdate(event, fight)}
+                  >
+                    <input
+                      name="fighterAName"
+                      aria-label={`Fighter A for bout ${fight.boutOrder ?? ''}`}
+                      defaultValue={fight.fighterA.name}
+                      required
+                    />
+                    <span>vs</span>
+                    <input
+                      name="fighterBName"
+                      aria-label={`Fighter B for bout ${fight.boutOrder ?? ''}`}
+                      defaultValue={fight.fighterB.name}
+                      required
+                    />
+                    <select
+                      name="weightClass"
+                      aria-label="Weight class"
+                      defaultValue={fight.weightClass ?? ''}
+                    >
+                      <option value="">Select weight class</option>
+                      {fight.weightClass &&
+                        !UFC_WEIGHT_CLASSES.includes(
+                          fight.weightClass as (typeof UFC_WEIGHT_CLASSES)[number],
+                        ) && (
+                          <option value={fight.weightClass}>
+                            {fight.weightClass}
+                          </option>
+                        )}
+                      {UFC_WEIGHT_CLASSES.map((weightClass) => (
+                        <option key={weightClass} value={weightClass}>
+                          {weightClass}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      name="boutOrder"
+                      aria-label="Bout order"
+                      type="number"
+                      min="1"
+                      max="100"
+                      defaultValue={fight.boutOrder ?? ''}
+                    />
+                    <select
+                      name="status"
+                      aria-label="Bout status"
+                      defaultValue={fight.status}
+                    >
+                      <option value="scheduled">Scheduled</option>
+                      <option value="cancelled">Cancelled</option>
+                      <option value="completed">Completed</option>
+                    </select>
+                    <label className="check-field">
+                      <input
+                        name="isMainEvent"
+                        type="checkbox"
+                        defaultChecked={fight.isMainEvent}
+                      />
+                      <span>Main event</span>
+                    </label>
+                    <button
+                      className="button button--secondary button--compact"
+                      disabled={savingEditId === fight.id}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="text-button text-button--danger"
+                      type="button"
+                      disabled={savingEditId === fight.id}
+                      onClick={() => void handleHideFight(fight)}
+                    >
+                      Hide
+                    </button>
+                  </form>
+                ))
               )}
-              {savingFight ? 'Adding fight' : 'Add fight'}
-            </button>
-          </form>
+            </div>
 
-          <div className="bout-list">
-            {fights.length === 0 ? (
-              <div className="empty-state empty-state--compact">
-                <Swords size={24} />
-                <p>No fights on this card</p>
-                <span>
-                  Add official participant names before adding sources.
-                </span>
-              </div>
-            ) : (
-              fights.map((fight) => (
-                <form
-                  className="bout-edit-row"
-                  key={`${fight.id}:${fight.updatedAt ?? ''}`}
-                  onSubmit={(event) => void handleFightUpdate(event, fight)}
-                >
+            <form className="bout-form" onSubmit={handleFightSubmit}>
+              <div className="field-row">
+                <label className="field">
+                  <span>Fighter A</span>
                   <input
                     name="fighterAName"
-                    aria-label={`Fighter A for bout ${fight.boutOrder ?? ''}`}
-                    defaultValue={fight.fighterA.name}
                     required
+                    maxLength={120}
+                    placeholder="Canonical name"
                   />
-                  <span>vs</span>
+                </label>
+                <label className="field">
+                  <span>Fighter B</span>
                   <input
                     name="fighterBName"
-                    aria-label={`Fighter B for bout ${fight.boutOrder ?? ''}`}
-                    defaultValue={fight.fighterB.name}
                     required
+                    maxLength={120}
+                    placeholder="Canonical name"
                   />
-                  <input
-                    name="weightClass"
-                    aria-label="Weight class"
-                    defaultValue={fight.weightClass ?? ''}
-                    placeholder="Weight class"
-                  />
-                  <input
-                    name="boutOrder"
-                    aria-label="Bout order"
-                    type="number"
-                    min="1"
-                    max="100"
-                    defaultValue={fight.boutOrder ?? ''}
-                  />
-                  <select
-                    name="status"
-                    aria-label="Bout status"
-                    defaultValue={fight.status}
-                  >
-                    <option value="scheduled">Scheduled</option>
-                    <option value="cancelled">Cancelled</option>
-                    <option value="completed">Completed</option>
+                </label>
+              </div>
+              <div className="field-row bout-details-row">
+                <label className="field">
+                  <span>Weight class</span>
+                  <select name="weightClass" defaultValue="">
+                    <option value="">Select weight class</option>
+                    {UFC_WEIGHT_CLASSES.map((weightClass) => (
+                      <option key={weightClass} value={weightClass}>
+                        {weightClass}
+                      </option>
+                    ))}
                   </select>
-                  <label className="check-field">
-                    <input
-                      name="isMainEvent"
-                      type="checkbox"
-                      defaultChecked={fight.isMainEvent}
-                    />
-                    <span>Main event</span>
-                  </label>
-                  <button
-                    className="button button--secondary button--compact"
-                    disabled={savingEditId === fight.id}
-                  >
-                    Save
-                  </button>
-                  <button
-                    className="text-button text-button--danger"
-                    type="button"
-                    disabled={savingEditId === fight.id}
-                    onClick={() => void handleHideFight(fight)}
-                  >
-                    Hide
-                  </button>
-                </form>
-              ))
-            )}
+                </label>
+                <label className="field">
+                  <span>Bout order</span>
+                  <input name="boutOrder" type="number" min="1" max="100" />
+                </label>
+              </div>
+              <label className="check-field">
+                <input name="isMainEvent" type="checkbox" />
+                <span>Main event</span>
+              </label>
+              <button
+                className="button button--primary button--full"
+                type="submit"
+                disabled={savingFight || !selectedCardId}
+              >
+                {savingFight ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <Plus size={17} />
+                )}
+                {savingFight ? 'Adding fight' : 'Add fight'}
+              </button>
+            </form>
           </div>
         </div>
-      </section>
+      </details>
 
-      <section className="alias-workspace">
-        <div className="section-heading">
+      <details className="alias-workspace collapsible-workspace">
+        <summary className="collapsible-workspace__summary">
           <div>
-            <p className="section-kicker">Transcript identity</p>
-            <h2>Fighter aliases</h2>
+            <h2>Match transcript spellings</h2>
           </div>
-          <span className="quiet-badge">{fighterAliases.length} aliases</span>
+          <div className="collapsible-workspace__summary-meta">
+            <span className="quiet-badge">{fighterAliases.length} saved</span>
+            <ChevronDown
+              className="collapsible-workspace__chevron"
+              size={19}
+              aria-hidden="true"
+            />
+          </div>
+        </summary>
+        <div className="collapsible-workspace__content">
+          <p className="collapsible-workspace__intro">
+            Use this only when a transcript misspells or mishears a fighter's
+            name. Link that spelling to the official fighter so extraction can
+            recognise it. You can ignore this section when names match normally.
+          </p>
+          <form className="alias-form" onSubmit={handleAliasSubmit}>
+            <label className="field">
+              <span>Official fighter</span>
+              <select name="fighterId" required>
+                <option value="">Select a fighter</option>
+                {selectableFighters.map((fighter) => (
+                  <option key={fighter.id} value={fighter.id}>
+                    {fighter.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>Name used in transcript</span>
+              <input name="aliasDisplay" required maxLength={160} />
+            </label>
+            <button
+              className="button button--secondary"
+              disabled={savingEditId === 'fighter-alias'}
+            >
+              Save spelling
+            </button>
+          </form>
+          <div className="alias-list">
+            {fighterAliases.map((alias) => (
+              <span key={alias.id}>
+                <strong>{alias.aliasDisplay}</strong> → {alias.entityName}
+              </span>
+            ))}
+          </div>
         </div>
-        <form className="alias-form" onSubmit={handleAliasSubmit}>
-          <label className="field">
-            <span>Fighter</span>
-            <select name="fighterId" required>
-              <option value="">Select a fighter</option>
-              {selectableFighters.map((fighter) => (
-                <option key={fighter.id} value={fighter.id}>
-                  {fighter.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Transcript spelling</span>
-            <input name="aliasDisplay" required maxLength={160} />
-          </label>
-          <button
-            className="button button--secondary"
-            disabled={savingEditId === 'fighter-alias'}
-          >
-            Add alias
-          </button>
-        </form>
-        <div className="alias-list">
-          {fighterAliases.map((alias) => (
-            <span key={alias.id}>
-              <strong>{alias.aliasDisplay}</strong> → {alias.entityName}
-            </span>
-          ))}
-        </div>
-      </section>
+      </details>
     </div>
   )
 }

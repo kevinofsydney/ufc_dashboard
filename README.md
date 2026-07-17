@@ -1,5 +1,9 @@
 # UFC Bet Synthesiser — Product Requirements and Implementation Plan
 
+**Status:** MVP feature-complete and locally verified; release hardening and production activation pending
+
+**Last verified:** 17 July 2026
+
 **Primary locale:** Australia/Sydney, AUD
 
 **Audience:** any coding agent or developer picking up this project cold
@@ -11,12 +15,13 @@ This document is the product specification, architecture decision record, data m
 Prerequisites: Node.js 22 or newer. All project dependencies and caches stay inside this repository.
 
 ```powershell
-npm.cmd install
-npm.cmd run db:migrate:local
+npm.cmd ci
 npm.cmd run dev
 ```
 
-Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Localhost bypasses the production Cloudflare Access gate and uses Wrangler's local D1 database. No Cloudflare account or LLM key is required for cards, fights, sources, prices, deterministic synthesis, ledger, settlement, or bankroll testing.
+`npm.cmd run dev` applies any pending local-only D1 migrations before starting,
+so new fields cannot silently run against an outdated local database. Open
+[http://127.0.0.1:5173](http://127.0.0.1:5173). Localhost bypasses the production Cloudflare Access gate and uses Wrangler's local D1 database. No Cloudflare account or LLM key is required for cards, fights, sources, prices, deterministic synthesis, ledger, settlement, or bankroll testing.
 
 Before pushing a change, run:
 
@@ -29,17 +34,52 @@ npm.cmd run test:e2e
 npm.cmd run build
 ```
 
-LLM extraction is optional during local development. To exercise it, copy `.env.example` to the ignored `.dev.vars` file, choose `anthropic` or `openrouter`, and provide the matching API key. Never commit that file. Remote Cloudflare setup is documented in `docs/cloudflare-setup.md`.
+LLM extraction is optional during local development. The simplest interactive
+path is **Settings → OpenRouter connection**: enter a spend-limited OpenRouter
+key, choose a saved model or load OpenRouter's current text-model catalogue,
+select a supported reasoning level, test it, then save the connection. Model
+preferences are stored in D1; the key remains limited to the current browser
+tab and is not stored in D1 or backups. For a server-managed default, copy
+`.env.example` to the ignored `.dev.vars` file, choose `anthropic` or
+`openrouter`, and provide the matching API key. Never commit that file. Remote
+Cloudflare setup is documented in `docs/cloudflare-setup.md`.
 
 ### MVP implementation status
 
-The MVP described in this document is implemented and locally verified. The
-automated suite covers pure calculation boundaries, LLM response contracts,
-isolated-D1 synthesis and backup restoration, and the critical browser journey.
-The remaining release work is credentialed external setup: create the preview
-and production D1 databases, configure Cloudflare Access and repository secrets,
-run one live provider/UFC-page smoke test, then enable automatic deployment.
-See `docs/implementation-status.md` for the exact checkpoint.
+The application MVP described in this document is implemented and locally
+verified. The repository contains eleven forward-only migrations, all eight product
+workspaces, versioned extraction and synthesis, the betting ledger, settlement,
+analytics, backup/restore, authentication enforcement, automated tests, and a
+guarded deployment workflow.
+
+Local acceptance currently passes:
+
+- TypeScript, ESLint, and Prettier checks.
+- 48 unit and isolated-D1 integration tests across 11 files.
+- Three Playwright checks covering persistent interface preferences, every
+  workspace at phone width, card/fight/source/capper/alias/odds mutations,
+  manual and parlay bets, settlement correction, bankroll reconciliation, and
+  backup download.
+- Production Worker and client builds.
+- Desktop and phone-sized visual checks with no browser console errors or
+  horizontal overflow.
+
+Production has not been activated or verified. Remaining pre-release work
+includes the missing PRD acceptance coverage, isolated preview deployment,
+rate-limit and secret-scan decisions, CI export placement, and the owner's
+Cloudflare/provider setup. After those pass, run live provider/UFC-page smoke
+tests and enable automatic deployment. See
+`docs/implementation-status.md` for the authoritative checkpoint and
+`docs/cloudflare-setup.md` for the release checklist.
+
+### Documentation map
+
+- `README.md`: product contract, architecture, acceptance criteria, and milestone status.
+- `docs/implementation-status.md`: authoritative completed/remaining/post-MVP split.
+- `docs/local-testing.md`: local startup, automated checks, data safety, and manual test paths.
+- `docs/cloudflare-setup.md`: one-time preview/production release checklist.
+- `AGENTS.md`: repository rules for future coding agents.
+- `prompts/*.md`: versioned runtime prompt contracts; these are application inputs, not status documents.
 
 ---
 
@@ -176,15 +216,16 @@ Infrastructure target: **$0/month at normal usage**, excluding LLM usage and an 
 - **Database:** Cloudflare D1, with local D1 through Wrangler.
 - **Validation:** Zod at every external and persistence boundary.
 - **Tests:** Vitest for unit/integration tests and Playwright for the critical user journey.
-- **Charts:** a lightweight React-compatible chart library selected during scaffolding.
-- **Package manager:** select one and commit its lockfile. All dependencies and caches must be installed locally within the project where configurable; no global project dependencies.
+- **Charts:** lightweight semantic HTML/CSS analytics visualisation; no separate chart dependency in the MVP.
+- **Package manager:** npm with a committed lockfile. All dependencies and caches stay inside the project where configurable; no global project dependencies are required.
 
-### Proposed repository layout
+### Current repository layout
 
 ```text
 /
 ├── AGENTS.md
 ├── README.md
+├── docs/
 ├── package.json
 ├── wrangler.jsonc
 ├── migrations/
@@ -197,19 +238,18 @@ Infrastructure target: **$0/month at normal usage**, excluding LLM usage and an 
 │   └── slate-rationales.md
 ├── src/
 │   ├── client/
+│   │   └── components/
 │   ├── server/
-│   │   ├── api/
-│   │   ├── auth/
-│   │   ├── db/
 │   │   ├── llm/
+│   │   ├── repositories/
 │   │   └── services/
 │   └── shared/
 │       ├── config/
-│       ├── domain/
 │       ├── maths/
 │       └── schemas/
+├── worker/
+├── scripts/
 ├── tests/
-│   ├── fixtures/
 │   ├── unit/
 │   ├── integration/
 │   └── e2e/
@@ -238,7 +278,19 @@ APP_ORIGIN=<production origin>
 
 Rules:
 
-- API keys remain Worker secrets and never enter the client bundle.
+- Server-managed API keys remain Worker secrets and never enter the client bundle.
+- The Settings workspace may supply a user-entered OpenRouter key as a tab-scoped runtime override. It is stored only in browser `sessionStorage`, sent over authenticated same-origin requests when an LLM operation runs, and never persisted to D1, backups, logs, application responses, or source control.
+- Preferred and saved OpenRouter model IDs, plus the chosen reasoning effort,
+  persist in application settings and backups. The seeded saved list includes
+  the owner's commonly used models and can be edited without an API key.
+- With a tab-scoped API key, Settings can request OpenRouter's current text-model
+  catalogue and populate the model selector. Catalogue loading uses the models
+  metadata endpoint and does not make a completion request.
+- When the selected model advertises configurable reasoning, Settings limits the
+  effort selector to the reported options. The chosen effort is sent through
+  OpenRouter's unified `reasoning.effort` request field; reasoning tokens can
+  increase output-token cost.
+- The Settings connection check validates both the key and model through metadata endpoints and must not make a paid completion request.
 - Extraction uses the provider’s lowest-variance setting, normally temperature 0, but must not be described as perfectly deterministic.
 - Strip markdown fences defensively, validate with Zod, and retry once with concise validation errors.
 - After a second failure, persist the failed run and show a readable retry/review action.
@@ -259,7 +311,8 @@ The following is the logical model. Migrations may normalize JSON objects into r
 Card {
   id, name, event_starts_at_utc, display_timezone="Australia/Sydney",
   budget_units=30, unit_value_cents=1000, currency="AUD",
-  lifecycle: draft|ready|in_progress|completed|cancelled
+  lifecycle: draft|ready|in_progress|completed|cancelled,
+  deleted_at nullable
 }
 
 Fighter { id, canonical_name }
@@ -595,15 +648,16 @@ Card lifecycle is independent from extraction and synthesis status. A completed 
 
 ## 8. Weekly user workflow
 
-1. **Create card (Wednesday/Thursday).** Paste an event URL or create manually. Review the fetched bout list and event time.
-2. **Add sources.** Select/create a capper, choose source medium and extraction mode, paste the content, then parse.
-3. **Review extraction.** Correct fighter mappings, predictor attribution, markets and confidence. Accept the extraction run.
-4. **Enter prices.** On the Odds Board, enter the current bookmaker prices for moneylines and any supported props under consideration.
-5. **Synthesise.** The engine creates a versioned Fight Board and draft slate.
-6. **Read.** Review consensus, crowd-versus-sharps signals, method/round support, dissent and rationales.
-7. **Place manually.** Tick placed bets and record the actual odds and stake. Skip unwanted bets or add manual bets/parlays.
-8. **Settle Sunday.** Record fight outcomes and the bookmaker result for every placed bet.
-9. **Review bankroll.** See cumulative P/L, card ROI, performance splits, capper accuracy and manual-versus-system results.
+1. **Configure.** In Settings, record the current bankroll, default unit size, and tab-scoped OpenRouter connection.
+2. **Create card (Wednesday/Thursday).** Paste an official UFC event URL or create manually. Review the fetched bout list, event time, and any displayed page odds. Importing page odds requires an explicit confirmation.
+3. **Add sources.** Select/create a capper, choose source medium and extraction mode, paste the content, then parse.
+4. **Review extraction.** Correct fighter mappings, predictor attribution, markets and confidence. Accept the extraction run.
+5. **Confirm prices.** On the Odds Board, review imported page prices and enter the current bookmaker prices for moneylines and supported props under consideration.
+6. **Synthesise.** OpenRouter extracts/summarises the reviewed language while deterministic code computes consensus, eligibility and stakes for a versioned Fight Board and draft slate.
+7. **Read.** Review consensus, crowd-versus-sharps signals, method/round support, dissent and rationales.
+8. **Place manually.** Use the ledger as a checklist: mark recommendations placed or skipped, record actual odds/stake, and add manual singles or parlays.
+9. **Settle Sunday.** Record fight outcomes and the bookmaker result for every placed bet.
+10. **Review bankroll.** See the manually maintained current balance alongside cumulative P/L, card ROI, performance splits, capper accuracy and manual-versus-system results.
 
 The primary card, odds and settlement workflows must be comfortable on a phone-sized screen.
 
@@ -614,10 +668,13 @@ The primary card, odds and settlement workflows must be comfortable on a phone-s
 ### 9.1 Card and participant management
 
 - CRUD for Cards and Cappers.
+- Card deletion requires an explicit inline confirmation and is implemented as an audited soft delete so related history is preserved.
 - Create a card manually or fetch by UFC.com URL, with a separately implemented fallback adapter if legally and technically viable.
 - Fetch order: structured page data/JSON-LD → stripped page text plus LLM → manual entry.
 - Auto-suggesting the next event is optional until a stable discovery source is proven.
 - The fetched result is always a preview diff, never an automatic overwrite.
+- When the page explicitly displays fighter moneyline odds, preserve them as raw text in the preview. The LLM does not convert them.
+- Importing UFC-page odds to the Odds Board is an explicit user choice and records `UFC event page` provenance. Unconfirmed page odds cannot qualify a bet.
 - Add, replace, rename, reorder, cancel or soft-delete fights.
 - Re-fetch merges by participant IDs/aliases and flags additions, removals, replacements and order changes.
 - No fuzzy match may overwrite reviewed manual data.
@@ -686,11 +743,42 @@ Requirements:
 ### 9.7 Operational UX
 
 - Explicit loading, empty, success, needs-review and error states.
+- Contextual help icons explain each workspace and major workflow section on hover, keyboard focus, or touch focus.
+- Light and dark themes carry the sidebar's charcoal-and-lime visual language through cards, controls, forms, tables, and status states.
+- The desktop sidebar can collapse to an accessible icon rail; theme and collapse preferences persist on that device, while the mobile drawer remains fully labelled.
+- A dedicated How to workspace explains the full card → sources → prices → synthesis → ledger → settlement workflow and links to each step.
 - No blank screen on network, database or LLM failure.
 - Keyboard-accessible forms and sufficient colour contrast.
 - Destructive actions require targeted confirmation.
 - Autosave status is visible; unsaved navigation warns.
 - Dates use Sydney local presentation while persisted instants use UTC.
+
+### 9.8 Settings and LLM credentials
+
+- The Settings workspace accepts an OpenRouter API key, exposes a persistent
+  saved-model list, and can load OpenRouter's current text-model catalogue into
+  the model selector.
+- The initial saved-model list contains `deepseek/deepseek-v4-flash`,
+  `deepseek/deepseek-v4-pro`, `z-ai/glm-5.2`,
+  `nvidia/nemotron-3-ultra-550b-a55b:free`, and `tencent/hy3:free`.
+- The selected model and reasoning effort persist in D1 and backups. Custom
+  `author/model` IDs can be added or removed without retyping them each session.
+- Where OpenRouter reports reasoning support, the user can use the model default,
+  disable reasoning when permitted, or select a supported effort. The Worker
+  sends this as `reasoning: { effort }`; the LLM still receives no authority over
+  deterministic betting calculations.
+- Settings persist a manually maintained current bankroll balance and default unit value in D1.
+- The default unit value applies to new cards; existing cards retain their snapshotted, separately editable unit value.
+- The key field is masked by default and can be explicitly shown or cleared.
+- The browser-entered API key is scoped to the current browser-tab session and is
+  never written to D1, backups, logs, application responses, or source control.
+- A tab-scoped OpenRouter configuration overrides the server default only for
+  LLM-backed requests from that tab. All other requests omit the credential.
+- A connection test verifies the authenticated key and selected model through
+  OpenRouter metadata endpoints without making a completion request.
+- Worker secrets remain the durable production/default configuration and are
+  used when no complete tab-scoped override is supplied.
+- Partial overrides are rejected and never combined with server credentials.
 
 ---
 
@@ -804,7 +892,7 @@ Input: canonical URL metadata and stripped event-page content after structured-d
 
 Core instruction:
 
-> Extract only bouts explicitly present in this event-page content. Do not add fighters from outside knowledge. Preserve page ordering when known. If order or main-event status is not stated, use null rather than guessing.
+> Extract only bouts explicitly present in this event-page content. Do not add fighters from outside knowledge. Preserve page ordering when known. Copy each fighter's displayed moneyline odds exactly as raw text; do not convert or calculate them. If odds, order or main-event status are not stated, use null rather than guessing.
 
 Output:
 
@@ -815,6 +903,8 @@ Output:
   "bouts": [{
     "fighter_a": "string",
     "fighter_b": "string",
+    "fighter_a_odds_raw": "string or null",
+    "fighter_b_odds_raw": "string or null",
     "weight_class": "string or null",
     "bout_order": "number or null",
     "is_main_event": "boolean or null"
@@ -845,6 +935,10 @@ Output:
 
 ## 12. CI/CD, environments and maintenance
 
+Implementation checkpoint: local and production build automation exists.
+Production/preview Cloudflare environments have not been provisioned or proven.
+The workflow must be hardened as noted below before deployment is enabled.
+
 ### Environments
 
 - **Local:** Wrangler local D1 and local-only dependency/cache directories where configurable.
@@ -853,7 +947,7 @@ Output:
 
 Cloudflare preview URLs are public by default; protect previews with Cloudflare Access. Do not place real transcripts, production data or production API keys into an unprotected preview.
 
-### CI on every push and pull request
+### Required CI on every push and pull request
 
 1. Install from the committed lockfile.
 2. Typecheck.
@@ -864,6 +958,13 @@ Cloudflare preview URLs are public by default; protect previews with Cloudflare 
 7. Scan committed content for secrets.
 
 No required CI test calls a live LLM, UFC page or odds API. Use recorded fixtures and provider mocks. Optional live contract smoke tests run manually or on a non-blocking schedule with strict spending limits.
+
+Current workflow status: installation, typecheck, lint, formatting, automated
+tests, Playwright, and the production build are wired. The committed-secret scan
+is not yet wired. The remote pre-migration export is currently in the general
+test job; move it into the credentialed deploy job immediately before migrations
+so pull requests do not require production credentials. An isolated preview
+deployment job also remains to be added and verified.
 
 ### CD on `main`
 
@@ -876,6 +977,11 @@ The deployment job runs only after CI passes:
 3. Deploy the Worker and static assets.
 4. Call public `/health` and an authenticated synthetic data route.
 5. Fail loudly and preserve logs on any error.
+
+The guarded production job implements migrations, deployment, and both smoke
+requests, but it has not run against the owner's Cloudflare account. Keep
+`CLOUDFLARE_DEPLOY_ENABLED` unset until the release checklist in
+`docs/cloudflare-setup.md` is complete.
 
 Database changes follow expand/contract migration discipline:
 
@@ -896,9 +1002,10 @@ Worker rollback does not reverse a D1 migration. Every destructive migration nee
 ### Backups
 
 - D1 Time Travel is always on, with the retention supplied by the active plan.
-- Provide an authenticated “Download backup” action that exports the application’s relational data in a documented JSON format without exposing Cloudflare management credentials.
-- Optionally run a scheduled `wrangler d1 export` workflow to owner-accessible protected storage.
-- Perform and document a restore rehearsal before declaring backups complete.
+- The authenticated “Download backup” action exports relational data in a versioned JSON format without exposing Cloudflare management credentials.
+- Restore is implemented for a freshly migrated database and refuses to overwrite application data; an isolated local restore rehearsal passes.
+- A production pre-migration `wrangler d1 export` is intended to be retained as a protected workflow artifact. Its workflow placement must be corrected before deployment is enabled.
+- Rehearse restore against a non-production Cloudflare D1 database before declaring production backups complete.
 - Warn that a full D1 export can briefly block database requests; acceptable for this single-user workload when surfaced.
 
 ### Agent maintenance contract
@@ -919,6 +1026,15 @@ The pipeline remains agent-agnostic.
 ---
 
 ## 13. Test strategy
+
+This section remains the required coverage contract. The current automated suite
+contains 48 unit/integration tests across 11 files plus three Playwright checks.
+It proves core maths, model response validation/retry, card-fetch restrictions,
+one isolated-D1 synthesis/grade transaction, backup/restore, and the manual
+parlay/settlement/bankroll flow. Coverage still required before production is
+listed in `docs/implementation-status.md`, particularly realistic extraction
+fixtures, full lifecycle integration cases, settlement boundaries, mutation
+authorization, migration upgrades, and the complete generated-bet E2E path.
 
 ### Unit tests — crown jewels
 
@@ -967,11 +1083,18 @@ Maintain realistic, de-identified fixtures covering:
 
 Expected fixtures test schema handling and deterministic merging. Live-model output is not assumed stable enough for blocking CI.
 
-### End-to-end path
+### Required end-to-end release path
 
-Playwright covers:
+The release-gate Playwright journey must cover:
 
 > authenticate → create card → edit fights → add and accept source → resolve unmatched name → enter odds → synthesise → inspect Fight Board → place generated bet → add manual/parlay bet → settle → verify bankroll
+
+The current Playwright checks cover persistent light/dark, sidebar and layout
+preferences; phone-width overflow; card/fight editing; fighter/capper aliases;
+source create/edit; duplicate handling; odds add/hide; outcomes; manual and
+structured parlay placement; settlement correction; bankroll reconciliation;
+and backup download. Live source parsing/review, generated synthesis, and
+generated-bet placement remain to be added before the release gate passes.
 
 ### Operational tests
 
@@ -985,6 +1108,12 @@ Playwright covers:
 ---
 
 ## 14. MVP acceptance criteria
+
+Status: the product behavior below is implemented, but the acceptance suite is
+not yet complete and production-only criteria have not been exercised. Treat
+this list as the release gate, not as a claim that every bullet already passed.
+The authoritative completed/remaining split is maintained in
+`docs/implementation-status.md`.
 
 ### Card management
 
@@ -1051,9 +1180,13 @@ Playwright covers:
 
 ## 15. Implementation plan
 
-Each milestone ends in a demonstrable vertical increment. A milestone is complete only when its exit gate passes; unfinished behavior must not be hidden behind optimistic documentation.
+Each milestone ends in a demonstrable vertical increment. A milestone is complete only when its exit gate passes; unfinished behavior must not be hidden behind optimistic documentation. Statuses below distinguish local feature implementation from external release proof.
 
 ### Milestone 0 — scaffold and risk spikes
+
+**Status:** partially complete. The local scaffold, D1, test harnesses, CI checks,
+`AGENTS.md`, and public health route are complete. The deployed CPU spike,
+protected preview proof, and preview/production isolation proof remain.
 
 Deliverables:
 
@@ -1072,6 +1205,9 @@ Exit gate:
 
 ### Milestone 1 — domain foundation and manual workflow
 
+**Status:** implemented and locally exercised. Preview verification remains part
+of the production release gate.
+
 Deliverables:
 
 - Migrations and repositories for Cards, Fighters, aliases, Fights, Cappers, Sources and audit metadata.
@@ -1085,6 +1221,9 @@ Exit gate:
 - A complete card and sources can be created, edited and reloaded locally and in preview; rename/reorder/soft-delete tests pass.
 
 ### Milestone 2 — versioned extraction and review
+
+**Status:** implemented. Provider/schema unit tests pass; the full realistic
+fixture set and parse/review/accept lifecycle integration coverage remain.
 
 Deliverables:
 
@@ -1102,6 +1241,9 @@ Exit gate:
 
 ### Milestone 3 — Odds Board and synthesis engine
 
+**Status:** implemented and locally verified for the covered maths and isolated-D1
+synthesis paths. Additional property/boundary cases from Section 13 remain.
+
 Deliverables:
 
 - MarketPrice model and American/decimal entry.
@@ -1117,6 +1259,9 @@ Exit gate:
 
 ### Milestone 4 — Fight Board and draft slate
 
+**Status:** implemented and visually verified on desktop and phone-sized
+viewports. The full generated-slate Playwright path remains.
+
 Deliverables:
 
 - Fixed Fight Board contract with responsive design.
@@ -1130,6 +1275,9 @@ Exit gate:
 - Every fixture fight renders correctly; crowd-versus-sharps and small-sample states are visually verified; language failure does not break numeric output.
 
 ### Milestone 5 — ledger, manual bets and parlays
+
+**Status:** implemented. Manual structured parlay persistence and mobile layout
+are locally verified; re-synthesis/placed-bet integration coverage remains.
 
 Deliverables:
 
@@ -1145,6 +1293,9 @@ Exit gate:
 
 ### Milestone 6 — outcomes, settlement and analytics
 
+**Status:** implemented. The current Playwright flow and isolated backup restore
+pass; exhaustive settlement boundary tests and a remote restore rehearsal remain.
+
 Deliverables:
 
 - FightOutcome workflow including draw/no-contest/cancellation/overturn.
@@ -1158,6 +1309,12 @@ Exit gate:
 - Full Playwright journey passes; all payout and grading fixtures reconcile exactly; backup restores into clean local D1.
 
 ### Milestone 7 — card fetching and production hardening
+
+**Status:** locally implemented in part. Structured parsing, LLM fallback,
+non-destructive merge, SSRF restrictions, audit history, observability, and the
+guarded production job exist. Preview deployment, rate limiting, secret scanning,
+CI export placement, live-page smoke testing, Cloudflare Access proof, production
+deployment, and rollback/restore rehearsal remain.
 
 Deliverables:
 
@@ -1173,6 +1330,8 @@ Exit gate:
 - MVP acceptance criteria all pass in production without real data leaking into logs or preview.
 
 ### Milestone 8 — Phase 2 features
+
+**Status:** not started; explicitly post-MVP.
 
 Deliver in separate, independently testable changes:
 
@@ -1211,4 +1370,6 @@ Changing a value requires updated boundary tests. Historical synthesis runs cont
 - Do not deploy preview code against production data.
 - Prefer transparent missing data over a polished invented answer.
 
-The MVP is ready to scaffold when Milestone 0 begins under these contracts.
+The MVP feature set is implemented locally. Complete the remaining acceptance,
+pipeline-hardening, and credentialed release items in
+`docs/implementation-status.md` before describing it as production-ready.

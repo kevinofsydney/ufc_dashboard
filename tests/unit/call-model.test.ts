@@ -6,18 +6,16 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('LLM provider contract', () => {
   it('strips fences, validates output, and records usage', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            choices: [{ message: { content: '```json\n{"ok":true}\n```' } }],
-            usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0.001 },
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } },
-        ),
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: '```json\n{"ok":true}\n```' } }],
+          usage: { prompt_tokens: 12, completion_tokens: 4, cost: 0.001 },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
       ),
     )
+    vi.stubGlobal('fetch', fetchMock)
 
     const result = await callModel(
       {
@@ -25,12 +23,21 @@ describe('LLM provider contract', () => {
         messages: [{ role: 'user', content: 'untrusted source' }],
         schema: z.object({ ok: z.literal(true) }),
       },
-      { provider: 'openrouter', model: 'test-model', apiKey: 'test-key' },
+      {
+        provider: 'openrouter',
+        model: 'test-model',
+        apiKey: 'test-key',
+        reasoningEffort: 'high',
+      },
     )
 
     expect(result.data.ok).toBe(true)
     expect(result.inputTokens).toBe(12)
     expect(result.estimatedCostMicros).toBe(1_000)
+    const requestBody = JSON.parse(
+      String((fetchMock.mock.calls[0]?.[1] as RequestInit).body),
+    ) as { reasoning?: { effort?: string } }
+    expect(requestBody.reasoning).toEqual({ effort: 'high' })
   })
 
   it('retries once with a validation correction', async () => {
