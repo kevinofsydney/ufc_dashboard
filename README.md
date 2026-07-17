@@ -2,8 +2,6 @@
 
 **Status:** ready to build after PRD review
 
-**Owner:** Wenona (single user)
-
 **Primary locale:** Australia/Sydney, AUD
 
 **Audience:** any coding agent or developer picking up this project cold
@@ -113,6 +111,12 @@ These decisions resolve ambiguities that would otherwise cause architectural rew
 11. **Money:** currency values use integer AUD cents. Decimal odds use a fixed-precision decimal representation, never binary floating point for persisted settlement maths.
 12. **External fetching:** structured data is attempted first, LLM parsing second, and manual editing always remains available.
 
+Additional hosting and deployment contracts:
+
+- **Hosting longevity:** the production application and database must not sleep, freeze, expire, be archived, be deleted, or require manual reactivation solely because they have received no traffic. Transparent serverless scale-to-zero is acceptable only when the next request starts automatically and all persisted data remains available.
+- **Cost ceiling:** hosting, static assets and database should cost **$0/month** at expected single-user usage. Any fallback must cost no more than **$3 USD/month** and requires owner approval before paid billing is enabled. LLM usage and an optional custom domain are tracked separately from hosting.
+- **Deployment experience:** the routine maintenance loop is: edit and test locally → commit and push to GitHub → CI runs automatically → a green `main` deploys automatically to Cloudflare. Routine deployment must require no hosting-dashboard login, server administration, manual wake-up or local deployment command.
+
 ### Current Cloudflare constraints to design around
 
 As of July 2026, the free Workers plan allows 100,000 requests per day and 10 ms of CPU per HTTP invocation; network waiting time is not CPU time. Free D1 provides 500 MB per database, 5 GB total account storage, and seven days of Time Travel. This application is tiny relative to the request and storage quotas, but authentication hashing, fuzzy matching and large validation payloads must be profiled in a deployed spike.
@@ -124,7 +128,7 @@ References:
 - [Workers Static Assets best practices](https://developers.cloudflare.com/workers/best-practices/workers-best-practices/)
 - [D1 import and export](https://developers.cloudflare.com/d1/best-practices/import-export-data/)
 
-Infrastructure target: **$0/month at normal usage**, excluding the LLM, a custom domain and optional paid services. Configure usage alerts. If a paid Cloudflare plan becomes necessary, re-evaluate the stated “under $5” constraint because the minimum paid tier may equal or exceed it.
+Infrastructure target: **$0/month at normal usage**, excluding LLM usage and an optional custom domain. Configure usage alerts. Do not automatically upgrade or enable paid billing. If Cloudflare’s free offering stops satisfying the longevity or workload requirements, select a replacement costing no more than **$3 USD/month** or obtain owner approval before proceeding.
 
 ---
 
@@ -830,6 +834,8 @@ No required CI test calls a live LLM, UFC page or odds API. Use recorded fixture
 
 ### CD on `main`
 
+The normal deployment path is zero-touch after Git push: GitHub receives the commit, the workflow runs CI, and a green `main` deploys to Cloudflare automatically. No routine Cloudflare dashboard action, server maintenance, manual wake-up or local `wrangler deploy` command is permitted.
+
 The deployment job runs only after CI passes:
 
 1. Take a pre-migration Time Travel bookmark and/or export for material migrations.
@@ -1003,6 +1009,10 @@ Playwright covers:
 - Migrations, deployment and smoke checks complete from GitHub Actions.
 - A backup can be exported and restored successfully.
 - Normal idle infrastructure cost is $0, excluding stated external costs.
+- The host does not suspend, archive, delete or require manual reactivation of the application or database solely because of inactivity.
+- A first request after an idle period starts automatically and can read previously persisted data without an owner action.
+- Hosting, static assets and database remain free at expected usage; any paid fallback is at most $3 USD/month and is never enabled without owner approval.
+- Pushing a green change to `main` deploys it automatically without a dashboard login, server administration, manual wake-up or local deployment command.
 
 ---
 
