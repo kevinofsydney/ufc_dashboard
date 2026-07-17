@@ -32,4 +32,17 @@ describe('winner consensus', () => {
       supportCounts: {},
     })
   })
+
+  it('uses the supplied confidence configuration', () => {
+    const result = calculateWinnerConsensus(
+      [
+        { capperId: 'one', fighterId: 'a', confidence: 'lean' },
+        { capperId: 'two', fighterId: 'b', confidence: 'solid' },
+      ],
+      { lean: 2, solid: 1, lock: 3 },
+    )
+
+    expect(result.shares.a).toBeCloseTo(2 / 3)
+    expect(result.shares.b).toBeCloseTo(1 / 3)
+  })
 })

@@ -51,19 +51,23 @@ function mapSource(row: SourceRow): SourceRecord {
   }
 }
 
+const selectSources = `
+  SELECT sources.id, sources.card_id, sources.primary_capper_id,
+         cappers.name AS primary_capper_name, sources.medium,
+         sources.extraction_mode, sources.source_url, sources.title,
+         sources.raw_text, sources.added_at, sources.created_at,
+         sources.updated_at
+  FROM sources
+  LEFT JOIN cappers ON cappers.id = sources.primary_capper_id
+`
+
 export async function listSources(
   db: Bindings['DB'],
   cardId: string,
 ): Promise<SourceRecord[]> {
   const result = await db
     .prepare(
-      `SELECT sources.id, sources.card_id, sources.primary_capper_id,
-              cappers.name AS primary_capper_name, sources.medium,
-              sources.extraction_mode, sources.source_url, sources.title,
-              sources.raw_text, sources.added_at, sources.created_at,
-              sources.updated_at
-       FROM sources
-       LEFT JOIN cappers ON cappers.id = sources.primary_capper_id
+      `${selectSources}
        WHERE sources.card_id = ?
        ORDER BY sources.added_at DESC`,
     )
@@ -71,6 +75,17 @@ export async function listSources(
     .all<SourceRow>()
 
   return result.results.map(mapSource)
+}
+
+export async function getSource(
+  db: Bindings['DB'],
+  sourceId: string,
+): Promise<SourceRecord | null> {
+  const row = await db
+    .prepare(`${selectSources} WHERE sources.id = ?`)
+    .bind(sourceId)
+    .first<SourceRow>()
+  return row ? mapSource(row) : null
 }
 
 export async function createSource(
@@ -124,4 +139,58 @@ export async function createSource(
     createdAt: now,
     updatedAt: now,
   }
+}
+
+export async function updateSource(
+  db: Bindings['DB'],
+  sourceId: string,
+  input: {
+    primaryCapperId: string | null
+    medium: SourceMedium
+    extractionMode: ExtractionMode
+    sourceUrl: string | null
+    title: string | null
+    rawText: string
+  },
+  actorEmail: string,
+): Promise<SourceRecord> {
+  const now = new Date().toISOString()
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE sources
+         SET primary_capper_id = ?, medium = ?, extraction_mode = ?,
+             source_url = ?, title = ?, raw_text = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        input.primaryCapperId,
+        input.medium,
+        input.extractionMode,
+        input.sourceUrl,
+        input.title,
+        input.rawText,
+        now,
+        sourceId,
+      ),
+    db
+      .prepare(
+        `INSERT INTO audit_events (
+           id, entity_type, entity_id, action, actor_email, details_json, created_at
+         ) VALUES (?, 'source', ?, 'updated', ?, ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        sourceId,
+        actorEmail,
+        JSON.stringify({
+          ...input,
+          rawText: `[${input.rawText.length} characters]`,
+        }),
+        now,
+      ),
+  ])
+  const updated = await getSource(db, sourceId)
+  if (!updated) throw new Error('Source not found')
+  return updated
 }

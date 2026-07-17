@@ -28,6 +28,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Export pre-migration D1 backup
+        run: npx wrangler d1 export ufc-bet-synthesiser --remote --output pre-migration-backup.sql
+
+      - name: Retain pre-migration backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-d1-before-${{ github.sha }}
+          path: pre-migration-backup.sql
+          retention-days: 7
+
       - name: Typecheck
         run: npm run typecheck
 
@@ -39,6 +49,17 @@ jobs:
 
       - name: Run unit tests
         run: npm test
+
+      - name: Apply local D1 migrations
+        run: npm run db:migrate:local
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: .playwright-browsers
+
+      - name: Run critical browser journey
+        run: npm run test:e2e
 
       - name: Build Worker and client
         run: npm run build
@@ -79,3 +100,14 @@ jobs:
         env:
           PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
         run: curl --fail --silent --show-error "$PRODUCTION_URL/health"
+
+      - name: Authenticated data smoke check
+        env:
+          PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+          ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: >-
+          curl --fail --silent --show-error
+          -H "CF-Access-Client-Id: $ACCESS_CLIENT_ID"
+          -H "CF-Access-Client-Secret: $ACCESS_CLIENT_SECRET"
+          "$PRODUCTION_URL/api/status"

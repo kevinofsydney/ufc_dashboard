@@ -159,3 +159,117 @@ export async function createFight(
     updatedAt: now,
   }
 }
+
+export async function updateFight(
+  db: Bindings['DB'],
+  fightId: string,
+  input: {
+    fighterAName: string
+    fighterBName: string
+    weightClass: string | null
+    boutOrder: number | null
+    isMainEvent: boolean
+    status: FightRecord['status']
+  },
+  actorEmail: string,
+): Promise<FightRecord> {
+  const existing = await db
+    .prepare(
+      `SELECT participant_a.fighter_id AS fighter_a_id,
+              participant_b.fighter_id AS fighter_b_id
+       FROM fights
+       INNER JOIN fight_participants participant_a
+         ON participant_a.fight_id = fights.id AND participant_a.side = 'a'
+       INNER JOIN fight_participants participant_b
+         ON participant_b.fight_id = fights.id AND participant_b.side = 'b'
+       WHERE fights.id = ? AND fights.deleted_at IS NULL`,
+    )
+    .bind(fightId)
+    .first<{ fighter_a_id: string; fighter_b_id: string }>()
+  if (!existing) throw new Error('Fight not found')
+  const fighterAId = await findOrCreateFighter(db, input.fighterAName)
+  const fighterBId = await findOrCreateFighter(db, input.fighterBName)
+  if (fighterAId === fighterBId)
+    throw new Error('A fight requires two different fighters')
+  const now = new Date().toISOString()
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE fights SET weight_class = ?, bout_order = ?, is_main_event = ?,
+                           status = ?, updated_at = ? WHERE id = ?`,
+      )
+      .bind(
+        input.weightClass,
+        input.boutOrder,
+        input.isMainEvent ? 1 : 0,
+        input.status,
+        now,
+        fightId,
+      ),
+    db
+      .prepare(
+        `UPDATE fight_participants
+         SET fighter_id = ?, display_name_snapshot = ?, updated_at = ?
+         WHERE fight_id = ? AND side = 'a'`,
+      )
+      .bind(fighterAId, input.fighterAName, now, fightId),
+    db
+      .prepare(
+        `UPDATE fight_participants
+         SET fighter_id = ?, display_name_snapshot = ?, updated_at = ?
+         WHERE fight_id = ? AND side = 'b'`,
+      )
+      .bind(fighterBId, input.fighterBName, now, fightId),
+    db
+      .prepare(
+        `INSERT INTO audit_events (
+           id, entity_type, entity_id, action, actor_email, details_json, created_at
+         ) VALUES (?, 'fight', ?, 'updated', ?, ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        fightId,
+        actorEmail,
+        JSON.stringify({
+          ...input,
+          previousFighterAId: existing.fighter_a_id,
+          previousFighterBId: existing.fighter_b_id,
+          fighterAId,
+          fighterBId,
+        }),
+        now,
+      ),
+  ])
+  const card = await db
+    .prepare('SELECT card_id FROM fights WHERE id = ?')
+    .bind(fightId)
+    .first<{ card_id: string }>()
+  const updated = card
+    ? (await listFights(db, card.card_id)).find((fight) => fight.id === fightId)
+    : null
+  if (!updated) throw new Error('Fight could not be reloaded')
+  return updated
+}
+
+export async function softDeleteFight(
+  db: Bindings['DB'],
+  fightId: string,
+  actorEmail: string,
+): Promise<void> {
+  const now = new Date().toISOString()
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE fights SET deleted_at = ?, updated_at = ?
+         WHERE id = ? AND deleted_at IS NULL`,
+      )
+      .bind(now, now, fightId),
+    db
+      .prepare(
+        `INSERT INTO audit_events (
+           id, entity_type, entity_id, action, actor_email, details_json, created_at
+         ) VALUES (?, 'fight', ?, 'soft_deleted', ?, NULL, ?)`,
+      )
+      .bind(crypto.randomUUID(), fightId, actorEmail, now),
+  ])
+}

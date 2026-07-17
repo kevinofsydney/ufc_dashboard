@@ -5,30 +5,45 @@ import {
   Plus,
   Swords,
 } from 'lucide-react'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   getCards,
+  getFighterAliases,
   getFights,
+  hideFight,
+  fetchCardPreview,
+  patchCard,
+  patchFight,
   postCard,
+  postFighterAlias,
   postFight,
+  type Alias,
   type Card,
+  type CardFetchPreview,
   type Fight,
 } from '../api'
 
 export function CardWorkspace() {
   const [cards, setCards] = useState<Card[]>([])
   const [fights, setFights] = useState<Fight[]>([])
+  const [fighterAliases, setFighterAliases] = useState<Alias[]>([])
+  const [fetchPreview, setFetchPreview] = useState<CardFetchPreview | null>(
+    null,
+  )
   const [selectedCardId, setSelectedCardId] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savingFight, setSavingFight] = useState(false)
+  const [savingEditId, setSavingEditId] = useState<string | null>(null)
+  const [fetchingCard, setFetchingCard] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    getCards()
-      .then((nextCards) => {
+    Promise.all([getCards(), getFighterAliases()])
+      .then(([nextCards, nextAliases]) => {
         setCards(nextCards)
-        setSelectedCardId(nextCards[0]?.id ?? '')
+        setFighterAliases(nextAliases)
+        setSelectedCardId((current) => current || nextCards[0]?.id || '')
       })
       .catch((requestError: unknown) =>
         setError(
@@ -82,6 +97,144 @@ export function CardWorkspace() {
     }
   }
 
+  const handleFetchPreview = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    setFetchingCard(true)
+    setError(null)
+    try {
+      setFetchPreview(
+        await fetchCardPreview(String(form.get('eventUrl') ?? '')),
+      )
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Event preview failed',
+      )
+    } finally {
+      setFetchingCard(false)
+    }
+  }
+
+  const handleImportPreview = async () => {
+    if (!fetchPreview?.event_name) return
+    setFetchingCard(true)
+    setError(null)
+    try {
+      const parsedDate = fetchPreview.event_starts_at_raw
+        ? new Date(fetchPreview.event_starts_at_raw)
+        : null
+      const card = await postCard({
+        name: fetchPreview.event_name,
+        eventStartsAtUtc:
+          parsedDate && !Number.isNaN(parsedDate.getTime())
+            ? parsedDate.toISOString()
+            : null,
+        budgetUnits: 30,
+        unitValueCents: 1000,
+      })
+      const importedFights: Fight[] = []
+      for (const bout of fetchPreview.bouts) {
+        importedFights.push(
+          await postFight({
+            cardId: card.id,
+            fighterAName: bout.fighter_a,
+            fighterBName: bout.fighter_b,
+            weightClass: bout.weight_class,
+            boutOrder: bout.bout_order,
+            isMainEvent: bout.is_main_event ?? false,
+          }),
+        )
+      }
+      setCards((current) => [card, ...current])
+      setSelectedCardId(card.id)
+      setFights(importedFights)
+      setFetchPreview(null)
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Event import failed',
+      )
+    } finally {
+      setFetchingCard(false)
+    }
+  }
+
+  const previewDiff = useMemo(() => {
+    const pairKey = (left: string, right: string) =>
+      [left, right]
+        .map((name) =>
+          name
+            .trim()
+            .normalize('NFKD')
+            .replace(/\p{Diacritic}/gu, '')
+            .toLocaleLowerCase()
+            .replace(/[^\p{Letter}\p{Number}]+/gu, ''),
+        )
+        .sort()
+        .join(':')
+    const existingKeys = new Set(
+      fights.map((fight) => pairKey(fight.fighterA.name, fight.fighterB.name)),
+    )
+    const previewKeys = new Set(
+      (fetchPreview?.bouts ?? []).map((bout) =>
+        pairKey(bout.fighter_a, bout.fighter_b),
+      ),
+    )
+    return {
+      bouts: (fetchPreview?.bouts ?? []).map((bout) => ({
+        ...bout,
+        alreadyPresent: existingKeys.has(
+          pairKey(bout.fighter_a, bout.fighter_b),
+        ),
+      })),
+      absentFromPreview: fights.filter(
+        (fight) =>
+          !previewKeys.has(pairKey(fight.fighterA.name, fight.fighterB.name)),
+      ),
+    }
+  }, [fetchPreview, fights])
+
+  const handleMergePreview = async () => {
+    if (!selectedCardId || !fetchPreview) return
+    const additions = previewDiff.bouts.filter((bout) => !bout.alreadyPresent)
+    setFetchingCard(true)
+    setError(null)
+    try {
+      const created: Fight[] = []
+      for (const bout of additions) {
+        created.push(
+          await postFight({
+            cardId: selectedCardId,
+            fighterAName: bout.fighter_a,
+            fighterBName: bout.fighter_b,
+            weightClass: bout.weight_class,
+            boutOrder: bout.bout_order,
+            isMainEvent: bout.is_main_event ?? false,
+          }),
+        )
+      }
+      setFights((current) =>
+        [...current, ...created].sort(
+          (left, right) =>
+            (left.boutOrder ?? Number.MAX_SAFE_INTEGER) -
+            (right.boutOrder ?? Number.MAX_SAFE_INTEGER),
+        ),
+      )
+      setFetchPreview(null)
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Event merge failed',
+      )
+    } finally {
+      setFetchingCard(false)
+    }
+  }
+
   const handleFightSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const formElement = event.currentTarget
@@ -119,8 +272,195 @@ export function CardWorkspace() {
     }
   }
 
+  const handleCardUpdate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedCardId) return
+    const form = new FormData(event.currentTarget)
+    const startsAt = String(form.get('eventStartsAt') ?? '')
+    setSavingEditId(selectedCardId)
+    setError(null)
+    try {
+      const card = await patchCard(selectedCardId, {
+        name: String(form.get('name') ?? '').trim(),
+        eventStartsAtUtc: startsAt ? new Date(startsAt).toISOString() : null,
+        budgetUnits: Number(form.get('budgetUnits')),
+        unitValueCents: Math.round(Number(form.get('unitValue')) * 100),
+        lifecycle: String(form.get('lifecycle')) as Card['lifecycle'],
+      })
+      setCards((current) =>
+        current.map((item) => (item.id === card.id ? card : item)),
+      )
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Card update failed',
+      )
+    } finally {
+      setSavingEditId(null)
+    }
+  }
+
+  const handleFightUpdate = async (
+    event: FormEvent<HTMLFormElement>,
+    fight: Fight,
+  ) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    setSavingEditId(fight.id)
+    setError(null)
+    try {
+      const updated = await patchFight(fight.id, {
+        fighterAName: String(form.get('fighterAName') ?? '').trim(),
+        fighterBName: String(form.get('fighterBName') ?? '').trim(),
+        weightClass: String(form.get('weightClass') ?? '').trim() || null,
+        boutOrder: String(form.get('boutOrder') ?? '')
+          ? Number(form.get('boutOrder'))
+          : null,
+        isMainEvent: form.get('isMainEvent') === 'on',
+        status: String(form.get('status')) as Fight['status'],
+      })
+      setFights((current) =>
+        current
+          .map((item) => (item.id === updated.id ? updated : item))
+          .sort(
+            (left, right) =>
+              (left.boutOrder ?? Number.MAX_SAFE_INTEGER) -
+              (right.boutOrder ?? Number.MAX_SAFE_INTEGER),
+          ),
+      )
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Fight update failed',
+      )
+    } finally {
+      setSavingEditId(null)
+    }
+  }
+
+  const handleHideFight = async (fight: Fight) => {
+    if (
+      !window.confirm(
+        `Hide ${fight.fighterA.name} vs ${fight.fighterB.name}? Historical extraction and ledger records remain intact.`,
+      )
+    )
+      return
+    setSavingEditId(fight.id)
+    try {
+      await hideFight(fight.id)
+      setFights((current) => current.filter((item) => item.id !== fight.id))
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Fight could not be hidden',
+      )
+    } finally {
+      setSavingEditId(null)
+    }
+  }
+
+  const handleAliasSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const formElement = event.currentTarget
+    const form = new FormData(formElement)
+    setSavingEditId('fighter-alias')
+    try {
+      const alias = await postFighterAlias(
+        String(form.get('fighterId')),
+        String(form.get('aliasDisplay') ?? '').trim(),
+      )
+      setFighterAliases((current) => [...current, alias])
+      formElement.reset()
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : 'Alias could not be saved',
+      )
+    } finally {
+      setSavingEditId(null)
+    }
+  }
+
+  const selectedCard = cards.find((card) => card.id === selectedCardId)
+  const selectableFighters = Array.from(
+    new Map(
+      fights
+        .flatMap((fight) => [fight.fighterA, fight.fighterB])
+        .map((fighter) => [fighter.id, fighter]),
+    ).values(),
+  )
+
   return (
     <div className="workspace-stack">
+      <section className="fetch-card-panel">
+        <form className="alias-form" onSubmit={handleFetchPreview}>
+          <label className="field">
+            <span>UFC event URL</span>
+            <input
+              name="eventUrl"
+              type="url"
+              required
+              placeholder="https://www.ufc.com/event/..."
+            />
+          </label>
+          <button className="button button--secondary" disabled={fetchingCard}>
+            {fetchingCard ? 'Fetching preview' : 'Preview event page'}
+          </button>
+        </form>
+        {fetchPreview && (
+          <div className="fetch-preview">
+            <div>
+              <strong>{fetchPreview.event_name ?? 'Unnamed UFC event'}</strong>
+              <span>
+                {fetchPreview.event_starts_at_raw ?? 'Date not found'}
+              </span>
+              <span>{fetchPreview.bouts.length} bouts found</span>
+            </div>
+            <ol>
+              {previewDiff.bouts.map((bout) => (
+                <li key={`${bout.fighter_a}-${bout.fighter_b}`}>
+                  {bout.fighter_a} vs {bout.fighter_b}
+                  <span className="quiet-badge">
+                    {bout.alreadyPresent ? 'already on card' : 'new bout'}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            {previewDiff.absentFromPreview.length > 0 && selectedCard && (
+              <p className="form-message form-message--warning">
+                {previewDiff.absentFromPreview.length} existing bout(s) are not
+                on this preview. They will stay unchanged for review.
+              </p>
+            )}
+            <div className="preview-actions">
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={!fetchPreview.event_name || fetchingCard}
+                onClick={() => void handleImportPreview()}
+              >
+                Import as new card
+              </button>
+              <button
+                className="button button--secondary"
+                type="button"
+                disabled={
+                  !selectedCardId ||
+                  fetchingCard ||
+                  previewDiff.bouts.every((bout) => bout.alreadyPresent)
+                }
+                onClick={() => void handleMergePreview()}
+              >
+                Add new bouts to selected card
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
       <section className="workspace-grid">
         <form className="editor-card" onSubmit={handleSubmit}>
           <div className="editor-card__heading">
@@ -273,6 +613,76 @@ export function CardWorkspace() {
           </label>
         </div>
 
+        {selectedCard && (
+          <form
+            className="card-maintenance-form"
+            key={`${selectedCard.id}:${selectedCard.updatedAt}`}
+            onSubmit={handleCardUpdate}
+          >
+            <label className="field">
+              <span>Selected event name</span>
+              <input name="name" defaultValue={selectedCard.name} required />
+            </label>
+            <label className="field">
+              <span>Event date and time</span>
+              <input
+                name="eventStartsAt"
+                type="datetime-local"
+                defaultValue={
+                  selectedCard.eventStartsAtUtc
+                    ? new Date(
+                        new Date(selectedCard.eventStartsAtUtc).getTime() -
+                          new Date(
+                            selectedCard.eventStartsAtUtc,
+                          ).getTimezoneOffset() *
+                            60_000,
+                      )
+                        .toISOString()
+                        .slice(0, 16)
+                    : ''
+                }
+              />
+            </label>
+            <label className="field">
+              <span>Budget units</span>
+              <input
+                name="budgetUnits"
+                type="number"
+                min="0"
+                defaultValue={selectedCard.budgetUnits}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Unit value AUD</span>
+              <input
+                name="unitValue"
+                type="number"
+                min="0.01"
+                step="0.01"
+                defaultValue={(selectedCard.unitValueCents / 100).toFixed(2)}
+                required
+              />
+            </label>
+            <label className="field">
+              <span>Lifecycle</span>
+              <select name="lifecycle" defaultValue={selectedCard.lifecycle}>
+                <option value="draft">Draft</option>
+                <option value="ready">Ready</option>
+                <option value="in_progress">In progress</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <button
+              className="button button--secondary button--compact"
+              disabled={savingEditId === selectedCard.id}
+            >
+              Save card changes
+            </button>
+          </form>
+        )}
+
         <div className="bout-layout">
           <form className="bout-form" onSubmit={handleFightSubmit}>
             <div className="field-row">
@@ -338,21 +748,113 @@ export function CardWorkspace() {
               </div>
             ) : (
               fights.map((fight) => (
-                <article className="bout-row" key={fight.id}>
-                  <span className="bout-order-number">
-                    {fight.isMainEvent ? 'ME' : (fight.boutOrder ?? '—')}
-                  </span>
-                  <div>
-                    <strong>{fight.fighterA.name}</strong>
-                    <span>vs</span>
-                    <strong>{fight.fighterB.name}</strong>
-                  </div>
-                  <p>{fight.weightClass ?? 'Weight class not set'}</p>
-                  <span className="status-chip">{fight.status}</span>
-                </article>
+                <form
+                  className="bout-edit-row"
+                  key={`${fight.id}:${fight.updatedAt ?? ''}`}
+                  onSubmit={(event) => void handleFightUpdate(event, fight)}
+                >
+                  <input
+                    name="fighterAName"
+                    aria-label={`Fighter A for bout ${fight.boutOrder ?? ''}`}
+                    defaultValue={fight.fighterA.name}
+                    required
+                  />
+                  <span>vs</span>
+                  <input
+                    name="fighterBName"
+                    aria-label={`Fighter B for bout ${fight.boutOrder ?? ''}`}
+                    defaultValue={fight.fighterB.name}
+                    required
+                  />
+                  <input
+                    name="weightClass"
+                    aria-label="Weight class"
+                    defaultValue={fight.weightClass ?? ''}
+                    placeholder="Weight class"
+                  />
+                  <input
+                    name="boutOrder"
+                    aria-label="Bout order"
+                    type="number"
+                    min="1"
+                    max="100"
+                    defaultValue={fight.boutOrder ?? ''}
+                  />
+                  <select
+                    name="status"
+                    aria-label="Bout status"
+                    defaultValue={fight.status}
+                  >
+                    <option value="scheduled">Scheduled</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                  <label className="check-field">
+                    <input
+                      name="isMainEvent"
+                      type="checkbox"
+                      defaultChecked={fight.isMainEvent}
+                    />
+                    <span>Main event</span>
+                  </label>
+                  <button
+                    className="button button--secondary button--compact"
+                    disabled={savingEditId === fight.id}
+                  >
+                    Save
+                  </button>
+                  <button
+                    className="text-button text-button--danger"
+                    type="button"
+                    disabled={savingEditId === fight.id}
+                    onClick={() => void handleHideFight(fight)}
+                  >
+                    Hide
+                  </button>
+                </form>
               ))
             )}
           </div>
+        </div>
+      </section>
+
+      <section className="alias-workspace">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">Transcript identity</p>
+            <h2>Fighter aliases</h2>
+          </div>
+          <span className="quiet-badge">{fighterAliases.length} aliases</span>
+        </div>
+        <form className="alias-form" onSubmit={handleAliasSubmit}>
+          <label className="field">
+            <span>Fighter</span>
+            <select name="fighterId" required>
+              <option value="">Select a fighter</option>
+              {selectableFighters.map((fighter) => (
+                <option key={fighter.id} value={fighter.id}>
+                  {fighter.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Transcript spelling</span>
+            <input name="aliasDisplay" required maxLength={160} />
+          </label>
+          <button
+            className="button button--secondary"
+            disabled={savingEditId === 'fighter-alias'}
+          >
+            Add alias
+          </button>
+        </form>
+        <div className="alias-list">
+          {fighterAliases.map((alias) => (
+            <span key={alias.id}>
+              <strong>{alias.aliasDisplay}</strong> → {alias.entityName}
+            </span>
+          ))}
         </div>
       </section>
     </div>

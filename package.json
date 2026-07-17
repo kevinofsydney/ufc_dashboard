@@ -13,12 +13,15 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "test:e2e:install": "cross-env PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright install chromium",
     "db:migrate:local": "cross-env XDG_CONFIG_HOME=.localappdata wrangler d1 migrations apply ufc-bet-synthesiser --local",
     "db:migrate:remote": "cross-env XDG_CONFIG_HOME=.localappdata wrangler d1 migrations apply ufc-bet-synthesiser --remote",
     "cf-typegen": "cross-env XDG_CONFIG_HOME=.localappdata wrangler types"
   },
   "dependencies": {
     "hono": "4.12.30",
+    "jose": "6.2.3",
     "lucide-react": "1.24.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
@@ -42,6 +45,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",
     "globals": "17.7.0",
+    "miniflare": "4.20260710.0",
     "prettier": "3.9.5",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",

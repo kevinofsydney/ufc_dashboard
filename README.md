@@ -1,12 +1,45 @@
 # UFC Bet Synthesiser — Product Requirements and Implementation Plan
 
-**Status:** ready to build after PRD review
-
 **Primary locale:** Australia/Sydney, AUD
 
 **Audience:** any coding agent or developer picking up this project cold
 
 This document is the product specification, architecture decision record, data model, prompt contract, acceptance test suite, and implementation plan. No prior conversation context is required.
+
+## Local development quick start
+
+Prerequisites: Node.js 22 or newer. All project dependencies and caches stay inside this repository.
+
+```powershell
+npm.cmd install
+npm.cmd run db:migrate:local
+npm.cmd run dev
+```
+
+Open [http://127.0.0.1:5173](http://127.0.0.1:5173). Localhost bypasses the production Cloudflare Access gate and uses Wrangler's local D1 database. No Cloudflare account or LLM key is required for cards, fights, sources, prices, deterministic synthesis, ledger, settlement, or bankroll testing.
+
+Before pushing a change, run:
+
+```powershell
+npm.cmd run typecheck
+npm.cmd run lint
+npm.cmd run format:check
+npm.cmd test
+npm.cmd run test:e2e
+npm.cmd run build
+```
+
+LLM extraction is optional during local development. To exercise it, copy `.env.example` to the ignored `.dev.vars` file, choose `anthropic` or `openrouter`, and provide the matching API key. Never commit that file. Remote Cloudflare setup is documented in `docs/cloudflare-setup.md`.
+
+### MVP implementation status
+
+The MVP described in this document is implemented and locally verified. The
+automated suite covers pure calculation boundaries, LLM response contracts,
+isolated-D1 synthesis and backup restoration, and the critical browser journey.
+The remaining release work is credentialed external setup: create the preview
+and production D1 databases, configure Cloudflare Access and repository secrets,
+run one live provider/UFC-page smoke test, then enable automatic deployment.
+See `docs/implementation-status.md` for the exact checkpoint.
 
 ---
 
@@ -100,7 +133,7 @@ These decisions resolve ambiguities that would otherwise cause architectural rew
 
 1. **Hosting:** one Cloudflare Worker serves the React/Vite static assets and Hono API on the same origin.
 2. **Database:** Cloudflare D1 is the only production database target in MVP. SQL remains portable where practical, but Fly.io parity is deferred until a real need appears.
-3. **Authentication:** Cloudflare Access with an allowlist for the owner is the default gate for production and preview deployments. The application has no user table. If Access cannot satisfy the owner’s login preference, custom password authentication is a separately scoped fallback with a password hash, `SESSION_SECRET`, secure cookie, expiry, CSRF protection and durable rate limiting.
+3. **Authentication:** Cloudflare Access with an allowlist for the owner is the default gate for production and preview deployments. The Worker validates the Access JWT signature, issuer and application audience against Cloudflare's published keys; it never trusts header presence alone. The application has no user table. If Access cannot satisfy the owner’s login preference, custom password authentication is a separately scoped fallback with a password hash, `SESSION_SECRET`, secure cookie, expiry, CSRF protection and durable rate limiting.
 4. **Health check:** `GET /health` is the only intentionally public application endpoint and returns no data beyond service/version status. Every data and mutation route requires authentication.
 5. **MVP odds:** the owner enters or pastes current prices on an Odds Board before synthesis. Mentioned odds from transcripts remain evidence only.
 6. **Consensus:** confidence-adjusted vote strength is normalized across both sides, so consensus shares are always between 0 and 1.

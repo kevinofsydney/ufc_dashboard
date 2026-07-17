@@ -11,5 +11,5 @@ coverage/
 !.env.example
 playwright-report/
 test-results/
+.playwright-browsers/
 *.log
-

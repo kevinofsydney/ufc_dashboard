@@ -65,3 +65,27 @@ export async function createCapper(
     updatedAt: now,
   }
 }
+
+export async function updateCapper(
+  db: Bindings['DB'],
+  capperId: string,
+  input: { name: string; notes: string | null; active: boolean },
+): Promise<CapperRecord> {
+  const now = new Date().toISOString()
+  await db
+    .prepare(
+      `UPDATE cappers SET name = ?, notes = ?, active = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+    .bind(input.name, input.notes, input.active ? 1 : 0, now, capperId)
+    .run()
+  const row = await db
+    .prepare(
+      `SELECT id, name, notes, active, created_at, updated_at
+       FROM cappers WHERE id = ?`,
+    )
+    .bind(capperId)
+    .first<CapperRow>()
+  if (!row) throw new Error('Capper not found')
+  return mapCapper(row)
+}

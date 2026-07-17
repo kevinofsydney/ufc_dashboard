@@ -1,5 +1,4 @@
 import { Hono } from 'hono'
-import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { z } from 'zod'
 import {
@@ -7,10 +6,66 @@ import {
   type AccessIdentity,
   type Bindings,
 } from '../src/server/env'
-import { createCapper, listCappers } from '../src/server/repositories/cappers'
-import { createCard, listCards } from '../src/server/repositories/cards'
-import { createFight, listFights } from '../src/server/repositories/fights'
-import { createSource, listSources } from '../src/server/repositories/sources'
+import {
+  createCapper,
+  listCappers,
+  updateCapper,
+} from '../src/server/repositories/cappers'
+import {
+  createCard,
+  listCards,
+  updateCard,
+} from '../src/server/repositories/cards'
+import {
+  createManualBet,
+  listAnalyticsBets,
+  listBets,
+  placeBet,
+  settleBet,
+  skipBet,
+  unsettleBet,
+} from '../src/server/repositories/bets'
+import {
+  createFight,
+  listFights,
+  softDeleteFight,
+  updateFight,
+} from '../src/server/repositories/fights'
+import { listExtractionRuns } from '../src/server/repositories/extractions'
+import {
+  createMarketPrice,
+  hideMarketPrice,
+  listMarketPrices,
+} from '../src/server/repositories/market-prices'
+import {
+  listCapperGrades,
+  listFightOutcomes,
+  recordFightOutcome,
+} from '../src/server/repositories/outcomes'
+import {
+  createSource,
+  listSources,
+  updateSource,
+} from '../src/server/repositories/sources'
+import {
+  createCapperAlias,
+  createFighterAlias,
+  listCapperAliases,
+  listFighterAliases,
+} from '../src/server/repositories/aliases'
+import {
+  acceptSynthesis,
+  getCurrentSynthesis,
+} from '../src/server/repositories/syntheses'
+import { acceptExtraction } from '../src/server/services/accept-extraction'
+import { parseSource } from '../src/server/services/parse-source'
+import { synthesiseCard } from '../src/server/services/synthesise-card'
+import { fetchCardPreview } from '../src/server/services/fetch-card'
+import {
+  exportApplicationBackup,
+  restoreApplicationBackup,
+} from '../src/server/services/backup'
+import { parseOdds } from '../src/shared/maths/odds'
 
 const app = new Hono<{
   Bindings: Bindings
@@ -18,15 +73,6 @@ const app = new Hono<{
 }>()
 
 app.use('/api/*', logger())
-app.use(
-  '/api/*',
-  cors({
-    origin: (origin) => origin,
-    allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'OPTIONS'],
-    allowHeaders: ['Content-Type'],
-    credentials: true,
-  }),
-)
 
 app.get('/health', (c) =>
   c.json({
@@ -37,7 +83,7 @@ app.get('/health', (c) =>
 )
 
 app.use('/api/*', async (c, next) => {
-  const identity = getAccessIdentity(c.req.raw)
+  const identity = await getAccessIdentity(c.req.raw, c.env)
   if (!identity) {
     return c.json({ error: 'Authentication required' }, 401)
   }
@@ -53,7 +99,44 @@ app.get('/api/status', (c) =>
   }),
 )
 
+app.get('/api/analytics/bets', async (c) =>
+  c.json({ bets: await listAnalyticsBets(c.env.DB) }),
+)
+
+app.get('/api/backup', async (c) =>
+  c.json(await exportApplicationBackup(c.env.DB), 200, {
+    'Content-Disposition': `attachment; filename="ufc-bet-synthesiser-${new Date().toISOString().slice(0, 10)}.json"`,
+  }),
+)
+
+app.post('/api/backup/restore', async (c) => {
+  try {
+    return c.json(await restoreApplicationBackup(c.env.DB, await c.req.json()))
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Restore failed' },
+      409,
+    )
+  }
+})
+
 app.get('/api/cards', async (c) => c.json({ cards: await listCards(c.env.DB) }))
+
+app.post('/api/cards/fetch-preview', async (c) => {
+  const parsed = z
+    .object({ url: z.string().url().max(2_000) })
+    .safeParse(await c.req.json())
+  if (!parsed.success)
+    return c.json({ error: 'Enter a valid UFC event URL' }, 400)
+  try {
+    return c.json({ preview: await fetchCardPreview(c.env, parsed.data.url) })
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Card fetch failed' },
+      422,
+    )
+  }
+})
 
 const createCardSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -75,30 +158,57 @@ app.post('/api/cards', async (c) => {
   return c.json({ card }, 201)
 })
 
+const updateCardSchema = createCardSchema.extend({
+  eventStartsAtUtc: z.string().datetime().nullable(),
+  budgetUnits: z.number().int().min(0).max(1_000),
+  unitValueCents: z.number().int().min(1).max(1_000_000),
+  lifecycle: z.enum([
+    'draft',
+    'ready',
+    'in_progress',
+    'completed',
+    'cancelled',
+  ]),
+})
+
+app.patch('/api/cards/:cardId', async (c) => {
+  const parsed = updateCardSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid card update' }, 400)
+  const card = await updateCard(
+    c.env.DB,
+    c.req.param('cardId'),
+    parsed.data,
+    c.get('accessIdentity').email,
+  )
+  return c.json({ card })
+})
+
 app.get('/api/fights', async (c) => {
   const cardId = c.req.query('cardId')
   if (!cardId) return c.json({ error: 'cardId is required' }, 400)
   return c.json({ fights: await listFights(c.env.DB, cardId) })
 })
 
-const createFightSchema = z
-  .object({
-    cardId: z.string().min(1).max(120),
-    fighterAName: z.string().trim().min(1).max(120),
-    fighterBName: z.string().trim().min(1).max(120),
-    weightClass: z.string().trim().max(120).nullable().optional(),
-    boutOrder: z.number().int().min(1).max(100).nullable().optional(),
-    isMainEvent: z.boolean().optional(),
-  })
-  .refine(
-    (input) =>
-      input.fighterAName.toLocaleLowerCase() !==
-      input.fighterBName.toLocaleLowerCase(),
-    {
-      message: 'A fight requires two different fighters',
-      path: ['fighterBName'],
-    },
-  )
+const fightInputSchema = z.object({
+  cardId: z.string().min(1).max(120),
+  fighterAName: z.string().trim().min(1).max(120),
+  fighterBName: z.string().trim().min(1).max(120),
+  weightClass: z.string().trim().max(120).nullable().optional(),
+  boutOrder: z.number().int().min(1).max(100).nullable().optional(),
+  isMainEvent: z.boolean().optional(),
+})
+
+const differentFightParticipants = (input: {
+  fighterAName: string
+  fighterBName: string
+}) =>
+  input.fighterAName.toLocaleLowerCase() !==
+  input.fighterBName.toLocaleLowerCase()
+
+const createFightSchema = fightInputSchema.refine(differentFightParticipants, {
+  message: 'A fight requires two different fighters',
+  path: ['fighterBName'],
+})
 
 app.post('/api/fights', async (c) => {
   const parsed = createFightSchema.safeParse(await c.req.json())
@@ -113,8 +223,116 @@ app.post('/api/fights', async (c) => {
   return c.json({ fight }, 201)
 })
 
+const updateFightSchema = fightInputSchema
+  .omit({ cardId: true })
+  .extend({
+    weightClass: z.string().trim().max(120).nullable(),
+    boutOrder: z.number().int().min(1).max(100).nullable(),
+    isMainEvent: z.boolean(),
+    status: z.enum(['scheduled', 'cancelled', 'completed']),
+  })
+  .refine(differentFightParticipants, {
+    message: 'A fight requires two different fighters',
+    path: ['fighterBName'],
+  })
+
+app.patch('/api/fights/:fightId', async (c) => {
+  const parsed = updateFightSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid fight update' }, 400)
+  try {
+    const fight = await updateFight(
+      c.env.DB,
+      c.req.param('fightId'),
+      parsed.data,
+      c.get('accessIdentity').email,
+    )
+    return c.json({ fight })
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Fight update failed' },
+      422,
+    )
+  }
+})
+
+app.delete('/api/fights/:fightId', async (c) => {
+  await softDeleteFight(
+    c.env.DB,
+    c.req.param('fightId'),
+    c.get('accessIdentity').email,
+  )
+  return c.json({ hidden: true })
+})
+
+app.get('/api/fight-outcomes', async (c) => {
+  const cardId = c.req.query('cardId')
+  if (!cardId) return c.json({ error: 'cardId is required' }, 400)
+  return c.json({ outcomes: await listFightOutcomes(c.env.DB, cardId) })
+})
+
+const fightOutcomeSchema = z
+  .object({
+    status: z.enum([
+      'pending',
+      'winner',
+      'draw',
+      'no_contest',
+      'overturned',
+      'cancelled',
+    ]),
+    winnerFighterId: z.string().min(1).max(120).nullable(),
+    method: z
+      .enum(['ko_tko', 'submission', 'decision', 'disqualification', 'other'])
+      .nullable(),
+    round: z.enum(['1', '2', '3', '4', '5']).nullable(),
+  })
+  .superRefine((input, context) => {
+    if (input.status === 'winner' && !input.winnerFighterId) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Select the winning fighter',
+        path: ['winnerFighterId'],
+      })
+    }
+    if (input.status !== 'winner' && input.winnerFighterId) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Only a winner result can name a winner',
+        path: ['winnerFighterId'],
+      })
+    }
+  })
+
+app.put('/api/fights/:fightId/outcome', async (c) => {
+  const parsed = fightOutcomeSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      { error: 'Invalid fight outcome', details: parsed.error.flatten() },
+      400,
+    )
+  }
+  try {
+    const outcome = await recordFightOutcome(
+      c.env.DB,
+      c.req.param('fightId'),
+      parsed.data,
+      c.get('accessIdentity').email,
+    )
+    return c.json({ outcome })
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Outcome failed' },
+      422,
+    )
+  }
+})
+
 app.get('/api/cappers', async (c) =>
   c.json({ cappers: await listCappers(c.env.DB) }),
+)
+
+app.get('/api/capper-grades', async (c) =>
+  c.json({ grades: await listCapperGrades(c.env.DB) }),
 )
 
 const createCapperSchema = z.object({
@@ -133,6 +351,74 @@ app.post('/api/cappers', async (c) => {
 
   const capper = await createCapper(c.env.DB, parsed.data)
   return c.json({ capper }, 201)
+})
+
+app.patch('/api/cappers/:capperId', async (c) => {
+  const parsed = createCapperSchema
+    .extend({
+      notes: z.string().trim().max(2_000).nullable(),
+      active: z.boolean(),
+    })
+    .safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid capper update' }, 400)
+  return c.json({
+    capper: await updateCapper(c.env.DB, c.req.param('capperId'), parsed.data),
+  })
+})
+
+const aliasSchema = z.object({
+  entityId: z.string().min(1).max(120),
+  aliasDisplay: z.string().trim().min(1).max(160),
+})
+
+app.get('/api/fighter-aliases', async (c) =>
+  c.json({ aliases: await listFighterAliases(c.env.DB) }),
+)
+app.post('/api/fighter-aliases', async (c) => {
+  const parsed = aliasSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid fighter alias' }, 400)
+  try {
+    return c.json(
+      {
+        alias: await createFighterAlias(
+          c.env.DB,
+          parsed.data.entityId,
+          parsed.data.aliasDisplay,
+        ),
+      },
+      201,
+    )
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Alias failed' },
+      422,
+    )
+  }
+})
+
+app.get('/api/capper-aliases', async (c) =>
+  c.json({ aliases: await listCapperAliases(c.env.DB) }),
+)
+app.post('/api/capper-aliases', async (c) => {
+  const parsed = aliasSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid capper alias' }, 400)
+  try {
+    return c.json(
+      {
+        alias: await createCapperAlias(
+          c.env.DB,
+          parsed.data.entityId,
+          parsed.data.aliasDisplay,
+        ),
+      },
+      201,
+    )
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Alias failed' },
+      422,
+    )
+  }
 })
 
 app.get('/api/sources', async (c) => {
@@ -162,6 +448,291 @@ app.post('/api/sources', async (c) => {
 
   const source = await createSource(c.env.DB, parsed.data)
   return c.json({ source }, 201)
+})
+
+app.patch('/api/sources/:sourceId', async (c) => {
+  const parsed = createSourceSchema
+    .omit({ cardId: true })
+    .safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid source update' }, 400)
+  const source = await updateSource(
+    c.env.DB,
+    c.req.param('sourceId'),
+    {
+      ...parsed.data,
+      primaryCapperId: parsed.data.primaryCapperId ?? null,
+      sourceUrl: parsed.data.sourceUrl ?? null,
+      title: parsed.data.title ?? null,
+    },
+    c.get('accessIdentity').email,
+  )
+  return c.json({ source })
+})
+
+app.get('/api/extractions', async (c) => {
+  const cardId = c.req.query('cardId')
+  if (!cardId) return c.json({ error: 'cardId is required' }, 400)
+  return c.json({ runs: await listExtractionRuns(c.env.DB, cardId) })
+})
+
+app.post('/api/sources/:sourceId/parse', async (c) => {
+  try {
+    const run = await parseSource(c.env, c.req.param('sourceId'))
+    return c.json({ run }, 201)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Extraction failed'
+    const status = message.includes('not configured') ? 503 : 422
+    return c.json({ error: message }, status)
+  }
+})
+
+app.post('/api/extractions/:runId/accept', async (c) => {
+  try {
+    const body = await c.req.json()
+    const parsed = z.object({ output: z.unknown() }).safeParse(body)
+    if (!parsed.success) {
+      return c.json({ error: 'The reviewed extraction is invalid' }, 400)
+    }
+    await acceptExtraction(
+      c.env,
+      c.req.param('runId'),
+      c.get('accessIdentity').email,
+      parsed.data.output,
+    )
+    return c.json({ accepted: true })
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Acceptance failed' },
+      422,
+    )
+  }
+})
+
+app.get('/api/market-prices', async (c) => {
+  const cardId = c.req.query('cardId')
+  if (!cardId) return c.json({ error: 'cardId is required' }, 400)
+  return c.json({ prices: await listMarketPrices(c.env.DB, cardId) })
+})
+
+const createMarketPriceSchema = z.object({
+  cardId: z.string().min(1).max(120),
+  fightId: z.string().min(1).max(120),
+  bookmaker: z.string().trim().max(120).nullable().optional(),
+  marketType: z.enum([
+    'moneyline',
+    'method',
+    'round',
+    'round_and_method',
+    'over_under',
+    'prop',
+    'other',
+  ]),
+  selectionFighterId: z.string().min(1).max(120),
+  selectionText: z.string().trim().min(1).max(240),
+  oddsInput: z.string().trim().min(1).max(40),
+  capturedAt: z.string().datetime().optional(),
+})
+
+app.post('/api/market-prices', async (c) => {
+  const parsed = createMarketPriceSchema.safeParse(await c.req.json())
+  if (!parsed.success) {
+    return c.json(
+      {
+        error: 'Invalid market price',
+        details: parsed.error.flatten().fieldErrors,
+      },
+      400,
+    )
+  }
+
+  let decimalOdds: number
+  try {
+    decimalOdds = parseOdds(parsed.data.oddsInput)
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Invalid odds' },
+      400,
+    )
+  }
+
+  const price = await createMarketPrice(c.env.DB, {
+    ...parsed.data,
+    decimalOdds: decimalOdds.toFixed(4),
+  })
+  return c.json({ price }, 201)
+})
+
+app.delete('/api/market-prices/:priceId', async (c) => {
+  try {
+    await hideMarketPrice(
+      c.env.DB,
+      c.req.param('priceId'),
+      c.get('accessIdentity').email,
+    )
+    return c.json({ hidden: true })
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Price hide failed' },
+      404,
+    )
+  }
+})
+
+app.post('/api/cards/:cardId/syntheses', async (c) => {
+  try {
+    const synthesis = await synthesiseCard(c.env, c.req.param('cardId'))
+    return c.json({ synthesis }, 201)
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Synthesis failed' },
+      422,
+    )
+  }
+})
+
+app.get('/api/cards/:cardId/synthesis', async (c) =>
+  c.json({
+    synthesis: await getCurrentSynthesis(c.env.DB, c.req.param('cardId')),
+  }),
+)
+
+app.post('/api/syntheses/:runId/accept', async (c) => {
+  try {
+    await acceptSynthesis(
+      c.env.DB,
+      c.req.param('runId'),
+      c.get('accessIdentity').email,
+    )
+    return c.json({ accepted: true })
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Acceptance failed' },
+      422,
+    )
+  }
+})
+
+app.get('/api/bets', async (c) => {
+  const cardId = c.req.query('cardId')
+  if (!cardId) return c.json({ error: 'cardId is required' }, 400)
+  return c.json({ bets: await listBets(c.env.DB, cardId) })
+})
+
+const manualBetSchema = z
+  .object({
+    cardId: z.string().min(1).max(120),
+    marketType: z.string().trim().min(1).max(80),
+    selectionText: z.string().trim().min(1).max(240),
+    oddsTakenInput: z.string().trim().min(1).max(40),
+    stakeUnits: z.number().positive().max(1_000),
+    notes: z.string().trim().max(2_000).nullable().optional(),
+    legs: z
+      .array(
+        z.object({
+          fightId: z.string().min(1).max(120),
+          marketType: z.string().trim().min(1).max(80),
+          selectionFighterId: z.string().min(1).max(120).nullable(),
+          selectionText: z.string().trim().min(1).max(240),
+        }),
+      )
+      .max(30)
+      .optional(),
+  })
+  .superRefine((input, context) => {
+    if (input.marketType === 'parlay' && (input.legs?.length ?? 0) < 2) {
+      context.addIssue({
+        code: 'custom',
+        message: 'A parlay requires at least two structured legs',
+        path: ['legs'],
+      })
+    }
+    if (input.marketType !== 'parlay' && (input.legs?.length ?? 0) > 0) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Only a parlay may contain structured legs',
+        path: ['legs'],
+      })
+    }
+  })
+
+app.post('/api/bets', async (c) => {
+  const parsed = manualBetSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid manual bet' }, 400)
+  let odds: number
+  try {
+    odds = parseOdds(parsed.data.oddsTakenInput)
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Invalid odds' },
+      400,
+    )
+  }
+  try {
+    const bet = await createManualBet(c.env.DB, {
+      ...parsed.data,
+      oddsTaken: odds.toFixed(4),
+      stakeUnits: parsed.data.stakeUnits.toFixed(2),
+    })
+    return c.json({ bet }, 201)
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Bet creation failed' },
+      422,
+    )
+  }
+})
+
+const betActionSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('place'),
+    oddsTakenInput: z.string().trim().min(1).max(40),
+    stakeUnits: z.number().positive().max(1_000),
+  }),
+  z.object({ action: z.literal('skip') }),
+  z.object({
+    action: z.literal('settle'),
+    result: z.enum(['won', 'lost', 'push', 'void']),
+    settlementOddsInput: z.string().trim().min(1).max(40).nullable().optional(),
+  }),
+  z.object({ action: z.literal('unsettle') }),
+])
+
+app.patch('/api/bets/:betId', async (c) => {
+  const parsed = betActionSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid bet action' }, 400)
+  try {
+    let bet
+    if (parsed.data.action === 'skip') {
+      bet = await skipBet(c.env.DB, c.req.param('betId'))
+    } else if (parsed.data.action === 'place') {
+      const odds = parseOdds(parsed.data.oddsTakenInput)
+      bet = await placeBet(c.env.DB, c.req.param('betId'), {
+        oddsTaken: odds.toFixed(4),
+        stakeUnits: parsed.data.stakeUnits.toFixed(2),
+      })
+    } else if (parsed.data.action === 'settle') {
+      const settlementOdds = parsed.data.settlementOddsInput
+        ? parseOdds(parsed.data.settlementOddsInput).toFixed(4)
+        : null
+      bet = await settleBet(c.env.DB, c.req.param('betId'), {
+        result: parsed.data.result,
+        settlementOdds,
+        actorEmail: c.get('accessIdentity').email,
+      })
+    } else {
+      bet = await unsettleBet(
+        c.env.DB,
+        c.req.param('betId'),
+        c.get('accessIdentity').email,
+      )
+    }
+    return c.json({ bet })
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Bet update failed' },
+      422,
+    )
+  }
 })
 
 app.onError((error, c) => {

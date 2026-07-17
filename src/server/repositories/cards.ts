@@ -97,3 +97,59 @@ export async function createCard(
     updatedAt: now,
   }
 }
+
+export async function updateCard(
+  db: Bindings['DB'],
+  cardId: string,
+  input: {
+    name: string
+    eventStartsAtUtc: string | null
+    budgetUnits: number
+    unitValueCents: number
+    lifecycle: CardRecord['lifecycle']
+  },
+  actorEmail: string,
+): Promise<CardRecord> {
+  const now = new Date().toISOString()
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE cards
+         SET name = ?, event_starts_at_utc = ?, budget_units = ?,
+             unit_value_cents = ?, lifecycle = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(
+        input.name,
+        input.eventStartsAtUtc,
+        input.budgetUnits,
+        input.unitValueCents,
+        input.lifecycle,
+        now,
+        cardId,
+      ),
+    db
+      .prepare(
+        `INSERT INTO audit_events (
+           id, entity_type, entity_id, action, actor_email, details_json, created_at
+         ) VALUES (?, 'card', ?, 'updated', ?, ?, ?)`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        cardId,
+        actorEmail,
+        JSON.stringify(input),
+        now,
+      ),
+  ])
+  const row = await db
+    .prepare(
+      `SELECT id, name, event_starts_at_utc, display_timezone, budget_units,
+              unit_value_cents, currency, lifecycle, created_at, updated_at
+       FROM cards WHERE id = ?`,
+    )
+    .bind(cardId)
+    .first<CardRow>()
+  if (!row) throw new Error('Card not found')
+  return mapCard(row)
+}

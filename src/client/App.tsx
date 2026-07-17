@@ -2,12 +2,9 @@ import {
   BarChart3,
   BookOpenText,
   CalendarDays,
-  Check,
   ChevronDown,
   CircleDollarSign,
   ClipboardCheck,
-  Database,
-  Gauge,
   Menu,
   Plus,
   Radio,
@@ -17,8 +14,12 @@ import {
   Swords,
   X,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CardWorkspace } from './components/CardWorkspace'
+import { BankrollWorkspace } from './components/BankrollWorkspace'
+import { FightBoardWorkspace } from './components/FightBoardWorkspace'
+import { LedgerWorkspace } from './components/LedgerWorkspace'
+import { OddsBoardWorkspace } from './components/OddsBoardWorkspace'
 import { SourcesWorkspace } from './components/SourcesWorkspace'
 
 type NavItem =
@@ -36,37 +37,6 @@ const navItems: Array<{ label: NavItem; icon: typeof Swords }> = [
   { label: 'Odds board', icon: CircleDollarSign },
   { label: 'Bet ledger', icon: ClipboardCheck },
   { label: 'Bankroll', icon: BarChart3 },
-]
-
-const workflow = [
-  { label: 'Card', detail: '12 fights reviewed', done: true },
-  { label: 'Sources', detail: '0 added', done: false },
-  { label: 'Prices', detail: 'Not entered', done: false },
-  { label: 'Synthesise', detail: 'Waiting on sources', done: false },
-]
-
-const sampleFights = [
-  {
-    order: 'Main event',
-    left: 'Fighter A',
-    right: 'Fighter B',
-    weight: 'Lightweight · 5 rounds',
-    status: 'Awaiting sources',
-  },
-  {
-    order: 'Co-main',
-    left: 'Fighter C',
-    right: 'Fighter D',
-    weight: 'Women’s Flyweight · 3 rounds',
-    status: 'Awaiting sources',
-  },
-  {
-    order: 'Main card',
-    left: 'Fighter E',
-    right: 'Fighter F',
-    weight: 'Welterweight · 3 rounds',
-    status: 'Awaiting sources',
-  },
 ]
 
 function App() {
@@ -91,11 +61,6 @@ function App() {
       })
     return () => controller.abort()
   }, [])
-
-  const completedSteps = useMemo(
-    () => workflow.filter((step) => step.done).length,
-    [],
-  )
 
   const handleNav = (label: NavItem) => {
     setActiveNav(label)
@@ -134,7 +99,6 @@ function App() {
             >
               <Icon size={18} strokeWidth={1.8} />
               <span>{label}</span>
-              {label === 'Sources' && <span className="nav-count">0</span>}
             </button>
           ))}
         </nav>
@@ -151,7 +115,12 @@ function App() {
           </div>
         </div>
 
-        <button className="nav-button settings-button" type="button">
+        <button
+          className="nav-button settings-button"
+          type="button"
+          disabled
+          title="Configuration is versioned in the repository for the MVP"
+        >
           <Settings size={18} />
           <span>Settings</span>
         </button>
@@ -180,7 +149,7 @@ function App() {
             <CalendarDays size={17} />
             <div>
               <span>Current card</span>
-              <strong>UFC Event — Draft</strong>
+              <strong>Select inside workspace</strong>
             </div>
             <ChevronDown size={16} />
           </div>
@@ -213,11 +182,19 @@ function App() {
               </p>
             </div>
             <div className="hero-actions">
-              <button className="button button--secondary" type="button">
+              <button
+                className="button button--secondary"
+                type="button"
+                onClick={() => handleNav('Sources')}
+              >
                 <Plus size={17} />
                 Add source
               </button>
-              <button className="button button--primary" type="button" disabled>
+              <button
+                className="button button--primary"
+                type="button"
+                onClick={() => handleNav('Fight board')}
+              >
                 <Sparkles size={17} />
                 Synthesise
               </button>
@@ -228,136 +205,14 @@ function App() {
             <CardWorkspace />
           ) : activeNav === 'Sources' ? (
             <SourcesWorkspace />
+          ) : activeNav === 'Odds board' ? (
+            <OddsBoardWorkspace />
+          ) : activeNav === 'Fight board' ? (
+            <FightBoardWorkspace />
+          ) : activeNav === 'Bet ledger' ? (
+            <LedgerWorkspace />
           ) : (
-            <>
-              <section
-                className="workflow-card"
-                aria-label="Card preparation progress"
-              >
-                <div className="workflow-heading">
-                  <div>
-                    <p className="section-kicker">Card preparation</p>
-                    <h2>Build the evidence before the slate</h2>
-                  </div>
-                  <div className="progress-copy">
-                    <strong>
-                      {completedSteps}/{workflow.length}
-                    </strong>
-                    <span>steps ready</span>
-                  </div>
-                </div>
-                <div className="workflow-track" aria-hidden="true">
-                  <span
-                    style={{
-                      width: `${(completedSteps / workflow.length) * 100}%`,
-                    }}
-                  />
-                </div>
-                <div className="workflow-steps">
-                  {workflow.map((step, index) => (
-                    <div
-                      className={`workflow-step ${step.done ? 'workflow-step--done' : ''}`}
-                      key={step.label}
-                    >
-                      <div className="step-index">
-                        {step.done ? <Check size={15} /> : index + 1}
-                      </div>
-                      <div>
-                        <strong>{step.label}</strong>
-                        <span>{step.detail}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-
-              <section className="content-grid">
-                <div className="fight-column">
-                  <div className="section-heading">
-                    <div>
-                      <p className="section-kicker">Bout order</p>
-                      <h2>Fight Board</h2>
-                    </div>
-                    <span className="quiet-badge">Preview data</span>
-                  </div>
-
-                  <div className="fight-list">
-                    {sampleFights.map((fight) => (
-                      <article
-                        className="fight-row"
-                        key={`${fight.left}-${fight.right}`}
-                      >
-                        <div className="fight-order">
-                          <Swords size={17} />
-                          <span>{fight.order}</span>
-                        </div>
-                        <div className="matchup">
-                          <strong>{fight.left}</strong>
-                          <span>vs</span>
-                          <strong>{fight.right}</strong>
-                        </div>
-                        <p className="fight-meta">{fight.weight}</p>
-                        <div className="empty-consensus">
-                          <span className="empty-consensus__bar" />
-                          <span>{fight.status}</span>
-                        </div>
-                        <button
-                          className="row-action"
-                          type="button"
-                          aria-label={`Open ${fight.left} versus ${fight.right}`}
-                        >
-                          <ChevronDown size={17} />
-                        </button>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-
-                <aside className="insight-column">
-                  <div className="budget-card">
-                    <div className="budget-card__topline">
-                      <div className="icon-tile icon-tile--warm">
-                        <Gauge size={19} />
-                      </div>
-                      <span>Weekly budget</span>
-                    </div>
-                    <div className="budget-value">
-                      <strong>30</strong>
-                      <span>units</span>
-                    </div>
-                    <p>AUD $300 at $10 per unit</p>
-                    <div className="budget-meter">
-                      <span />
-                    </div>
-                    <div className="budget-split">
-                      <span>0u proposed</span>
-                      <span>30u available</span>
-                    </div>
-                  </div>
-
-                  <div className="principle-card">
-                    <div className="principle-heading">
-                      <div className="icon-tile">
-                        <Database size={18} />
-                      </div>
-                      <div>
-                        <span>Build principle</span>
-                        <strong>Language in, maths in code</strong>
-                      </div>
-                    </div>
-                    <p>
-                      Source extraction may use an LLM. Consensus, allocation
-                      and payout calculations stay deterministic and tested.
-                    </p>
-                    <div className="principle-tags">
-                      <span>Review first</span>
-                      <span>No invention</span>
-                      <span>No force-spend</span>
-                    </div>
-                  </div>
-                </aside>
-              </section>
-            </>
+            <BankrollWorkspace />
           )}
         </div>
       </main>

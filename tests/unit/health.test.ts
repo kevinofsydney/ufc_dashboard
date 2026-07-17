@@ -26,6 +26,25 @@ describe('health endpoint', () => {
     expect(response.status).toBe(401)
   })
 
+  it('does not trust spoofed Cloudflare Access headers', async () => {
+    const response = await app.request(
+      'https://example.com/api/status',
+      {
+        headers: {
+          'cf-access-jwt-assertion': 'not-a-signed-token',
+          'cf-access-authenticated-user-email': 'attacker@example.com',
+        },
+      },
+      {
+        DB: {} as D1Database,
+        CF_ACCESS_TEAM_DOMAIN: 'https://example.cloudflareaccess.com',
+        CF_ACCESS_AUD: 'expected-audience',
+      },
+    )
+
+    expect(response.status).toBe(401)
+  })
+
   it('allows local development data routes', async () => {
     const response = await app.request(
       'http://localhost/api/status',
