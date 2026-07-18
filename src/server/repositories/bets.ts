@@ -1,5 +1,6 @@
 import { netProfitUnits } from '../../shared/maths/odds'
 import type { Bindings } from '../env'
+import { auditEvent } from './audit'
 
 export interface BetRecord {
   id: string
@@ -365,19 +366,14 @@ export async function settleBet(
          WHERE id = ? AND state = 'placed'`,
       )
       .bind(input.result, settlementOdds, profit.toFixed(4), now, now, betId),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'bet', ?, 'settled', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        betId,
-        input.actorEmail,
-        JSON.stringify({ result: input.result, settlementOdds }),
-        now,
-      ),
+    auditEvent(db, {
+      entityType: 'bet',
+      entityId: betId,
+      action: 'settled',
+      actorEmail: input.actorEmail,
+      details: { result: input.result, settlementOdds },
+      now,
+    }),
   ])
   return getBet(db, betId)
 }
@@ -400,13 +396,13 @@ export async function unsettleBet(
          WHERE id = ? AND state = 'settled'`,
       )
       .bind(now, betId),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'bet', ?, 'unsettled', ?, NULL, ?)`,
-      )
-      .bind(crypto.randomUUID(), betId, actorEmail, now),
+    auditEvent(db, {
+      entityType: 'bet',
+      entityId: betId,
+      action: 'unsettled',
+      actorEmail,
+      now,
+    }),
   ])
   return getBet(db, betId)
 }

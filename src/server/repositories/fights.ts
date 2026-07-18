@@ -1,4 +1,5 @@
 import type { Bindings } from '../env'
+import { auditEvent } from './audit'
 
 export interface FightRecord {
   id: string
@@ -220,25 +221,20 @@ export async function updateFight(
          WHERE fight_id = ? AND side = 'b'`,
       )
       .bind(fighterBId, input.fighterBName, now, fightId),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'fight', ?, 'updated', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        fightId,
-        actorEmail,
-        JSON.stringify({
-          ...input,
-          previousFighterAId: existing.fighter_a_id,
-          previousFighterBId: existing.fighter_b_id,
-          fighterAId,
-          fighterBId,
-        }),
-        now,
-      ),
+    auditEvent(db, {
+      entityType: 'fight',
+      entityId: fightId,
+      action: 'updated',
+      actorEmail,
+      details: {
+        ...input,
+        previousFighterAId: existing.fighter_a_id,
+        previousFighterBId: existing.fighter_b_id,
+        fighterAId,
+        fighterBId,
+      },
+      now,
+    }),
   ])
   const card = await db
     .prepare('SELECT card_id FROM fights WHERE id = ?')
@@ -264,12 +260,12 @@ export async function softDeleteFight(
          WHERE id = ? AND deleted_at IS NULL`,
       )
       .bind(now, now, fightId),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'fight', ?, 'soft_deleted', ?, NULL, ?)`,
-      )
-      .bind(crypto.randomUUID(), fightId, actorEmail, now),
+    auditEvent(db, {
+      entityType: 'fight',
+      entityId: fightId,
+      action: 'soft_deleted',
+      actorEmail,
+      now,
+    }),
   ])
 }

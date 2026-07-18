@@ -5,6 +5,8 @@ import {
   stripMarkdownFences,
 } from '../../shared/schemas/extraction'
 import type { Bindings } from '../env'
+import { auditEvent } from '../repositories/audit'
+import { normalizeAlias } from '../text'
 import type { ExtractionRunRecord } from '../repositories/extractions'
 import { listFights } from '../repositories/fights'
 import type { SourceRecord } from '../repositories/sources'
@@ -15,15 +17,6 @@ function decodeRaw(rawResponse: string): unknown {
   } catch {
     throw new Error('The extraction output is not valid JSON')
   }
-}
-
-function normalizeAlias(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
 }
 
 async function capperResolver(db: Bindings['DB']) {
@@ -59,7 +52,7 @@ async function capperResolver(db: Bindings['DB']) {
   }
 }
 
-function acceptanceStatements(
+export function acceptanceStatements(
   db: Bindings['DB'],
   run: ExtractionRunRecord,
   source: SourceRecord,
@@ -81,19 +74,14 @@ function acceptanceStatements(
         `UPDATE sources SET active_extraction_run_id = ?, updated_at = ? WHERE id = ?`,
       )
       .bind(run.id, now, source.id),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'extraction_run', ?, 'accepted', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        run.id,
-        actorEmail,
-        JSON.stringify(details),
-        now,
-      ),
+    auditEvent(db, {
+      entityType: 'extraction_run',
+      entityId: run.id,
+      action: 'accepted',
+      actorEmail,
+      details,
+      now,
+    }),
   ]
 }
 

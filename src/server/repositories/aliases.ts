@@ -1,4 +1,5 @@
 import type { Bindings } from '../env'
+import { normalizeAlias } from '../text'
 
 export interface AliasRecord {
   id: string
@@ -6,15 +7,6 @@ export interface AliasRecord {
   entityName: string
   aliasDisplay: string
   aliasNormalized: string
-}
-
-function normalizeAlias(value: string): string {
-  return value
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLocaleLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim()
 }
 
 export async function listFighterAliases(

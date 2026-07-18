@@ -8,6 +8,7 @@ import { getExtractionRun } from '../repositories/extractions'
 import { listFights } from '../repositories/fights'
 import { getSource } from '../repositories/sources'
 import {
+  acceptanceStatements,
   acceptAggregatorExtraction,
   acceptStatsTrackerExtraction,
 } from './accept-special-extraction'
@@ -172,27 +173,17 @@ export async function acceptExtraction(
   }
 
   statements.push(
-    env.DB.prepare(
-      `UPDATE extraction_runs
-       SET status = 'accepted', reviewed_response = ?, updated_at = ?
-       WHERE id = ?`,
-    ).bind(JSON.stringify(reviewed.data), now, run.id),
-    env.DB.prepare(
-      `UPDATE sources SET active_extraction_run_id = ?, updated_at = ? WHERE id = ?`,
-    ).bind(run.id, now, source.id),
-    env.DB.prepare(
-      `INSERT INTO audit_events (
-         id, entity_type, entity_id, action, actor_email, details_json, created_at
-       ) VALUES (?, 'extraction_run', ?, 'accepted', ?, ?, ?)`,
-    ).bind(
-      crypto.randomUUID(),
-      run.id,
+    ...acceptanceStatements(
+      env.DB,
+      run,
+      source,
       actorEmail,
-      JSON.stringify({
+      reviewed.data,
+      {
         opinions: reviewed.data.opinions.length,
         tips: reviewed.data.tips.length,
         reviewStatus,
-      }),
+      },
       now,
     ),
   )

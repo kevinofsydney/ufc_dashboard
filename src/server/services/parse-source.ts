@@ -8,6 +8,7 @@ import {
   type StatsTrackerExtraction,
 } from '../../shared/schemas/extraction'
 import type { Bindings } from '../env'
+import { sha256 } from '../hash'
 import { callModel } from '../llm/call-model'
 import { providerConfigurationFromEnv } from '../llm/configuration'
 import type { ProviderConfiguration } from '../llm/provider'
@@ -79,14 +80,6 @@ function mergeStats(chunks: StatsTrackerExtraction[]): StatsTrackerExtraction {
     stats: uniqueObjects(chunks.flatMap((chunk) => chunk.stats)),
     unmatched: uniqueObjects(chunks.flatMap((chunk) => chunk.unmatched)),
   }
-}
-
-async function sha256(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value)
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return [...new Uint8Array(digest)]
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
 }
 
 function getProviderConfiguration(

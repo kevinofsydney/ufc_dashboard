@@ -1,4 +1,5 @@
 import type { Bindings } from '../env'
+import { auditEvent } from './audit'
 
 export type FightOutcomeStatus =
   'pending' | 'winner' | 'draw' | 'no_contest' | 'overturned' | 'cancelled'
@@ -107,19 +108,14 @@ export async function recordFightOutcome(
         now,
         now,
       ),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'fight_outcome', ?, 'recorded', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        fightId,
-        actorEmail,
-        JSON.stringify(input),
-        now,
-      ),
+    auditEvent(db, {
+      entityType: 'fight_outcome',
+      entityId: fightId,
+      action: 'recorded',
+      actorEmail,
+      details: input,
+      now,
+    }),
   ])
 
   const row = await db

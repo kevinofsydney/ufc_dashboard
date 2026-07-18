@@ -1,4 +1,5 @@
 import type { Bindings } from '../env'
+import { auditEvent } from './audit'
 
 export interface CardRecord {
   id: string
@@ -129,19 +130,14 @@ export async function updateCard(
         now,
         cardId,
       ),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'card', ?, 'updated', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        cardId,
-        actorEmail,
-        JSON.stringify(input),
-        now,
-      ),
+    auditEvent(db, {
+      entityType: 'card',
+      entityId: cardId,
+      action: 'updated',
+      actorEmail,
+      details: input,
+      now,
+    }),
   ])
   const row = await db
     .prepare(
@@ -175,18 +171,13 @@ export async function softDeleteCard(
          WHERE id = ? AND deleted_at IS NULL`,
       )
       .bind(now, now, cardId),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'card', ?, 'deleted', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        cardId,
-        actorEmail,
-        JSON.stringify({ name: existing.name, softDelete: true }),
-        now,
-      ),
+    auditEvent(db, {
+      entityType: 'card',
+      entityId: cardId,
+      action: 'deleted',
+      actorEmail,
+      details: { name: existing.name, softDelete: true },
+      now,
+    }),
   ])
 }

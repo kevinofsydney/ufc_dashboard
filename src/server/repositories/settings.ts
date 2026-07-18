@@ -1,4 +1,5 @@
 import type { Bindings } from '../env'
+import { auditEvent } from './audit'
 import {
   defaultSavedOpenRouterModels,
   normalizeSavedOpenRouterModels,
@@ -106,13 +107,14 @@ export async function updateApplicationSettings(
         input.openRouterReasoningEffort ?? null,
         now,
       ),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'app_settings', '1', 'updated', ?, ?, ?)`,
-      )
-      .bind(crypto.randomUUID(), actorEmail, JSON.stringify(input), now),
+    auditEvent(db, {
+      entityType: 'app_settings',
+      entityId: '1',
+      action: 'updated',
+      actorEmail,
+      details: input,
+      now,
+    }),
   ])
   return getApplicationSettings(db)
 }

@@ -1,4 +1,5 @@
 import type { Bindings } from '../env'
+import { auditEvent } from './audit'
 
 export type SourceMedium =
   'youtube' | 'patreon' | 'pasted_text' | 'webpage' | 'other'
@@ -173,22 +174,17 @@ export async function updateSource(
         now,
         sourceId,
       ),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'source', ?, 'updated', ?, ?, ?)`,
-      )
-      .bind(
-        crypto.randomUUID(),
-        sourceId,
-        actorEmail,
-        JSON.stringify({
-          ...input,
-          rawText: `[${input.rawText.length} characters]`,
-        }),
-        now,
-      ),
+    auditEvent(db, {
+      entityType: 'source',
+      entityId: sourceId,
+      action: 'updated',
+      actorEmail,
+      details: {
+        ...input,
+        rawText: `[${input.rawText.length} characters]`,
+      },
+      now,
+    }),
   ])
   const updated = await getSource(db, sourceId)
   if (!updated) throw new Error('Source not found')

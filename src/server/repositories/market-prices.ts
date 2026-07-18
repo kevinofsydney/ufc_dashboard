@@ -1,4 +1,5 @@
 import type { Bindings } from '../env'
+import { auditEvent } from './audit'
 
 export interface MarketPriceRecord {
   id: string
@@ -102,14 +103,13 @@ export async function hideMarketPrice(
     .bind(now, now, priceId)
     .run()
   if (result.meta.changes !== 1) throw new Error('Price snapshot not found')
-  await db
-    .prepare(
-      `INSERT INTO audit_events (
-         id, entity_type, entity_id, action, actor_email, details_json, created_at
-       ) VALUES (?, 'market_price', ?, 'hidden', ?, NULL, ?)`,
-    )
-    .bind(crypto.randomUUID(), priceId, actorEmail, now)
-    .run()
+  await auditEvent(db, {
+    entityType: 'market_price',
+    entityId: priceId,
+    action: 'hidden',
+    actorEmail,
+    now,
+  }).run()
 }
 
 export async function createMarketPrice(

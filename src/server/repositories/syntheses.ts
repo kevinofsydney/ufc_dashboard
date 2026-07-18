@@ -1,4 +1,5 @@
 import type { Bindings } from '../env'
+import { auditEvent } from './audit'
 import type { FightEvidence } from '../services/synthesise-card'
 
 function parseEvidence(value: string): FightEvidence {
@@ -201,12 +202,12 @@ export async function acceptSynthesis(
         `UPDATE synthesis_runs SET status = 'accepted', updated_at = ? WHERE id = ?`,
       )
       .bind(now, run.id),
-    db
-      .prepare(
-        `INSERT INTO audit_events (
-           id, entity_type, entity_id, action, actor_email, details_json, created_at
-         ) VALUES (?, 'synthesis_run', ?, 'accepted', ?, NULL, ?)`,
-      )
-      .bind(crypto.randomUUID(), run.id, actorEmail, now),
+    auditEvent(db, {
+      entityType: 'synthesis_run',
+      entityId: run.id,
+      action: 'accepted',
+      actorEmail,
+      now,
+    }),
   ])
 }
