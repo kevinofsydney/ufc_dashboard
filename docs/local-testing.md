@@ -84,8 +84,8 @@ npm.cmd run build
 ```
 
 The automated suite never calls a live LLM, UFC page, bookmaker, production D1
-database, or paid service. The currently verified baseline is 46 tests across
-11 unit/integration files plus three Chromium checks.
+database, or paid service. The verified baseline is the full unit and
+isolated-D1 integration suite plus three Chromium checks.
 
 `npm.cmd test` includes a clean, isolated D1 restore rehearsal and a real
 deterministic synthesis transaction. `npm.cmd run test:e2e` starts and stops its

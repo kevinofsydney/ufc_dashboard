@@ -21,7 +21,7 @@ Status terms used below:
 ### Platform and data
 
 - React 19, Vite, Tailwind CSS, Hono, and one Cloudflare Worker/static-assets build.
-- Cloudflare D1 with ten additive, forward-only migrations.
+- Cloudflare D1 with a sequence of additive, forward-only migrations in `migrations/`.
 - Cards, fighters, aliases, fights, participants, cappers, sources, extraction
   runs, opinions, tips, stats, prices, synthesis, bets, legs, outcomes, and audit
   persistence.
@@ -81,7 +81,7 @@ The final local acceptance run on 17 July 2026 passed:
 - `npm.cmd run typecheck`
 - `npm.cmd run lint`
 - `npm.cmd run format:check`
-- `npm.cmd test`: 46/46 tests across 11 files
+- `npm.cmd test`: the full unit and isolated-D1 integration suite
 - `npm.cmd run test:e2e`: three Chromium checks
 - `npm.cmd run build`: Worker and client production bundles
 

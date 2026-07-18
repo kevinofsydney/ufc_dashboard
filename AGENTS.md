@@ -1,6 +1,6 @@
 # Repository instructions
 
-- Read `README.md` before changing the application.
+- Read `README.md` for orientation and `docs/product-spec.md` for the product contract before changing the application.
 - Read `docs/implementation-status.md` before claiming the MVP is production-ready.
 - The feature set is implemented and locally verified; production/preview activation and the listed acceptance hardening remain incomplete as of 17 July 2026.
 - Install project dependencies and caches only inside this repository.
@@ -12,4 +12,4 @@
 - Preserve unrelated work and prefer small, focused changes.
 - Production data and production D1 bindings must never be used by preview deployments.
 - Do not enable `CLOUDFLARE_DEPLOY_ENABLED` until the release blockers in `docs/cloudflare-setup.md` are complete.
-- Keep completed, remaining, and post-MVP work synchronized across `README.md`, `docs/implementation-status.md`, `docs/local-testing.md`, and `docs/cloudflare-setup.md`.
+- `docs/implementation-status.md` is the single source of truth for completed, remaining, and post-MVP status. Other documents link to it instead of restating status; do not add status prose or test/migration counts elsewhere.
