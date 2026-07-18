@@ -24,7 +24,8 @@ import {
   type ExtractionRun,
   type Source,
 } from '../api'
-import { formatCardTimestamp } from '../format'
+import { errorMessage, formatCardTimestamp } from '../format'
+import { CardSelect } from './CardSelect'
 import { HelpTooltip } from './HelpTooltip'
 
 export function SourcesWorkspace() {
@@ -68,11 +69,7 @@ export function SourcesWorkspace() {
         setSelectedCardId((current) => current || nextCards[0]?.id || '')
       })
       .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Sources could not be loaded',
-        ),
+        setError(errorMessage(requestError, 'Sources could not be loaded')),
       )
   }, [])
 
@@ -84,11 +81,7 @@ export function SourcesWorkspace() {
         setRuns(nextRuns)
       })
       .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Sources could not be loaded',
-        ),
+        setError(errorMessage(requestError, 'Sources could not be loaded')),
       )
   }, [selectedCardId])
 
@@ -128,11 +121,7 @@ export function SourcesWorkspace() {
       setEditingSource(null)
       formElement.reset()
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Source could not be saved',
-      )
+      setError(errorMessage(requestError, 'Source could not be saved'))
     } finally {
       setSavingSource(false)
     }
@@ -153,11 +142,7 @@ export function SourcesWorkspace() {
       )
       formElement.reset()
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Capper could not be saved',
-      )
+      setError(errorMessage(requestError, 'Capper could not be saved'))
     } finally {
       setSavingCapper(false)
     }
@@ -177,11 +162,7 @@ export function SourcesWorkspace() {
       setCapperAliases((current) => [...current, alias])
       formElement.reset()
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Capper alias could not be saved',
-      )
+      setError(errorMessage(requestError, 'Capper alias could not be saved'))
     } finally {
       setSavingCapper(false)
     }
@@ -194,11 +175,7 @@ export function SourcesWorkspace() {
       const run = await parseSource(sourceId)
       setRuns((current) => [run, ...current])
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Source could not be parsed',
-      )
+      setError(errorMessage(requestError, 'Source could not be parsed'))
     } finally {
       setParsingSourceId(null)
     }
@@ -254,9 +231,7 @@ export function SourcesWorkspace() {
       setReviewConfirmed(false)
     } catch (requestError) {
       setReviewError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Extraction could not be accepted',
+        errorMessage(requestError, 'Extraction could not be accepted'),
       )
     } finally {
       setAcceptingRunId(null)
@@ -266,22 +241,11 @@ export function SourcesWorkspace() {
   return (
     <section className="workspace-stack">
       <div className="source-toolbar">
-        <label className="field source-card-select">
-          <span>Working card</span>
-          <select
-            value={selectedCardId}
-            onChange={(event) => setSelectedCardId(event.target.value)}
-          >
-            {cards.length === 0 && (
-              <option value="">Create a card first</option>
-            )}
-            {cards.map((card) => (
-              <option key={card.id} value={card.id}>
-                {card.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <CardSelect
+          cards={cards}
+          value={selectedCardId}
+          onChange={setSelectedCardId}
+        />
         <form className="quick-capper" onSubmit={handleCapperSubmit}>
           <label className="field">
             <span>Add a capper</span>

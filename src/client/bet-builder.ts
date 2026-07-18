@@ -21,11 +21,14 @@ const standardPickTypes: PickTypeOption[] = [
   { value: 'decision', label: 'Decision' },
 ]
 
+function scheduledRounds(fight: Fight): number {
+  return fight.isMainEvent ? 5 : 3
+}
+
 export function pickTypeOptionsForFight(fight: Fight): PickTypeOption[] {
-  const scheduledRounds = fight.isMainEvent ? 5 : 3
   return [
     ...standardPickTypes,
-    ...Array.from({ length: scheduledRounds }, (_, index) => {
+    ...Array.from({ length: scheduledRounds(fight) }, (_, index) => {
       const round = (index + 1) as 1 | 2 | 3 | 4 | 5
       return {
         value: `round_${round}` as PickType,
@@ -74,8 +77,8 @@ export function buildBetSelection(
   }
 
   const round = Number(pickType.replace('round_', ''))
-  const maximumRound = fight.isMainEvent ? 5 : 3
-  if (!Number.isInteger(round) || round < 1 || round > maximumRound) return null
+  if (!Number.isInteger(round) || round < 1 || round > scheduledRounds(fight))
+    return null
   return {
     marketType: 'round',
     selectionText: `${fighter.name} in Round ${round}`,

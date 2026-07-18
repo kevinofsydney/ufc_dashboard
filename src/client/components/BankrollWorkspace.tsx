@@ -18,6 +18,7 @@ import {
   type Card,
   type ApplicationSettings,
 } from '../api'
+import { errorMessage } from '../format'
 import { HelpTooltip } from './HelpTooltip'
 
 interface CardLedger {
@@ -97,11 +98,7 @@ export function BankrollWorkspace() {
         setSettings(nextSettings)
       })
       .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Bankroll could not be loaded',
-        ),
+        setError(errorMessage(requestError, 'Bankroll could not be loaded')),
       )
       .finally(() => setLoading(false))
   }, [])
@@ -186,11 +183,7 @@ export function BankrollWorkspace() {
     try {
       await downloadBackup()
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Backup could not be downloaded',
-      )
+      setError(errorMessage(requestError, 'Backup could not be downloaded'))
     } finally {
       setDownloading(false)
     }

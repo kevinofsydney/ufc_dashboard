@@ -8,25 +8,25 @@ import {
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   acceptSynthesis,
-  getCards,
   getCurrentSynthesis,
   getFightOutcomes,
   getFights,
   postSynthesis,
   putFightOutcome,
-  type Card,
   type Fight,
   type FightOutcome,
   type Synthesis,
 } from '../api'
-import { formatCardTimestamp } from '../format'
+import { errorMessage, formatCardTimestamp } from '../format'
+import { useCards } from '../use-cards'
+import { CardSelect } from './CardSelect'
 import { HelpTooltip } from './HelpTooltip'
 
 export function FightBoardWorkspace() {
-  const [cards, setCards] = useState<Card[]>([])
+  const { cards, selectedCardId, setSelectedCardId, cardsError, cardsLoaded } =
+    useCards()
   const [fights, setFights] = useState<Fight[]>([])
   const [outcomes, setOutcomes] = useState<FightOutcome[]>([])
-  const [selectedCardId, setSelectedCardId] = useState('')
   const [loading, setLoading] = useState(true)
   const [synthesising, setSynthesising] = useState(false)
   const [synthesis, setSynthesis] = useState<Synthesis | null>(null)
@@ -37,28 +37,7 @@ export function FightBoardWorkspace() {
   const [synthesisAccepted, setSynthesisAccepted] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    getCards()
-      .then((nextCards) => {
-        if (cancelled) return
-        setCards(nextCards)
-        setSelectedCardId((current) => current || nextCards[0]?.id || '')
-        if (nextCards.length === 0) setLoading(false)
-      })
-      .catch(
-        (requestError: unknown) =>
-          !cancelled &&
-          setError(
-            requestError instanceof Error
-              ? requestError.message
-              : 'Cards could not be loaded',
-          ),
-      )
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const showLoading = loading && !(cardsLoaded && cards.length === 0)
 
   useEffect(() => {
     if (!selectedCardId) return
@@ -74,11 +53,7 @@ export function FightBoardWorkspace() {
         setSynthesisAccepted(currentSynthesis?.status === 'accepted')
       })
       .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Fights could not be loaded',
-        ),
+        setError(errorMessage(requestError, 'Fights could not be loaded')),
       )
       .finally(() => setLoading(false))
   }, [selectedCardId])
@@ -96,11 +71,7 @@ export function FightBoardWorkspace() {
       setSynthesis(await postSynthesis(selectedCardId))
       setSynthesisAccepted(false)
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Card could not be synthesised',
-      )
+      setError(errorMessage(requestError, 'Card could not be synthesised'))
     } finally {
       setSynthesising(false)
     }
@@ -117,11 +88,7 @@ export function FightBoardWorkspace() {
       )
       setSynthesisAccepted(true)
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Draft could not be accepted',
-      )
+      setError(errorMessage(requestError, 'Draft could not be accepted'))
     } finally {
       setAccepting(false)
     }
@@ -161,11 +128,7 @@ export function FightBoardWorkspace() {
         outcome,
       ])
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Fight outcome could not be saved',
-      )
+      setError(errorMessage(requestError, 'Fight outcome could not be saved'))
     } finally {
       setSavingOutcomeFightId(null)
     }
@@ -174,29 +137,18 @@ export function FightBoardWorkspace() {
   return (
     <section className="workspace-stack">
       <div className="source-toolbar">
-        <label className="field source-card-select">
-          <span>Working card</span>
-          <select
-            value={selectedCardId}
-            onChange={(event) => {
-              setLoading(true)
-              setFights([])
-              setOutcomes([])
-              setSynthesis(null)
-              setSynthesisAccepted(false)
-              setSelectedCardId(event.target.value)
-            }}
-          >
-            {cards.length === 0 && (
-              <option value="">Create a card first</option>
-            )}
-            {cards.map((card) => (
-              <option key={card.id} value={card.id}>
-                {card.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <CardSelect
+          cards={cards}
+          value={selectedCardId}
+          onChange={(cardId) => {
+            setLoading(true)
+            setFights([])
+            setOutcomes([])
+            setSynthesis(null)
+            setSynthesisAccepted(false)
+            setSelectedCardId(cardId)
+          }}
+        />
         {selectedCard && (
           <div className="board-summary">
             <span>
@@ -245,8 +197,12 @@ export function FightBoardWorkspace() {
           <span className="quiet-badge">{fights.length} fights</span>
         </div>
 
-        {error && <p className="form-message form-message--error">{error}</p>}
-        {loading ? (
+        {(error ?? cardsError) && (
+          <p className="form-message form-message--error">
+            {error ?? cardsError}
+          </p>
+        )}
+        {showLoading ? (
           <div className="empty-state">
             <LoaderCircle className="spin" size={23} />
             <p>Loading Fight Board</p>

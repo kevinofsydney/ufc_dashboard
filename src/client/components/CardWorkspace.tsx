@@ -30,7 +30,16 @@ import {
   type CardFetchPreview,
   type Fight,
 } from '../api'
+import { errorMessage } from '../format'
+import { CardSelect } from './CardSelect'
 import { HelpTooltip } from './HelpTooltip'
+
+function byBoutOrder(left: Fight, right: Fight): number {
+  return (
+    (left.boutOrder ?? Number.MAX_SAFE_INTEGER) -
+    (right.boutOrder ?? Number.MAX_SAFE_INTEGER)
+  )
+}
 
 const UFC_WEIGHT_CLASSES = [
   "Women's Strawweight",
@@ -79,11 +88,7 @@ export function CardWorkspace() {
         setSelectedCardId((current) => current || nextCards[0]?.id || '')
       })
       .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Cards could not be loaded',
-        ),
+        setError(errorMessage(requestError, 'Cards could not be loaded')),
       )
       .finally(() => setLoading(false))
   }, [])
@@ -93,11 +98,7 @@ export function CardWorkspace() {
     getFights(selectedCardId)
       .then(setFights)
       .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Fights could not be loaded',
-        ),
+        setError(errorMessage(requestError, 'Fights could not be loaded')),
       )
   }, [selectedCardId])
 
@@ -132,11 +133,7 @@ export function CardWorkspace() {
         setSelectedCardId(remainingCards[0]?.id ?? '')
       }
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Card could not be deleted',
-      )
+      setError(errorMessage(requestError, 'Card could not be deleted'))
     } finally {
       setDeletingCardId(null)
     }
@@ -161,11 +158,7 @@ export function CardWorkspace() {
       if (!selectedCardId) setSelectedCardId(card.id)
       formElement.reset()
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Card could not be saved',
-      )
+      setError(errorMessage(requestError, 'Card could not be saved'))
     } finally {
       setSaving(false)
     }
@@ -182,11 +175,7 @@ export function CardWorkspace() {
         await fetchCardPreview(String(form.get('eventUrl') ?? '')),
       )
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Event preview failed',
-      )
+      setError(errorMessage(requestError, 'Event preview failed'))
     } finally {
       setFetchingCard(false)
     }
@@ -270,11 +259,7 @@ export function CardWorkspace() {
         )
       }
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Event import failed',
-      )
+      setError(errorMessage(requestError, 'Event import failed'))
     } finally {
       setFetchingCard(false)
     }
@@ -337,13 +322,7 @@ export function CardWorkspace() {
           (await importBoutPageOdds(selectedCardId, fight, bout)) &&
           pricesComplete
       }
-      setFights((current) =>
-        [...current, ...created].sort(
-          (left, right) =>
-            (left.boutOrder ?? Number.MAX_SAFE_INTEGER) -
-            (right.boutOrder ?? Number.MAX_SAFE_INTEGER),
-        ),
-      )
+      setFights((current) => [...current, ...created].sort(byBoutOrder))
       setFetchPreview(null)
       if (!pricesComplete) {
         setError(
@@ -351,11 +330,7 @@ export function CardWorkspace() {
         )
       }
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Event merge failed',
-      )
+      setError(errorMessage(requestError, 'Event merge failed'))
     } finally {
       setFetchingCard(false)
     }
@@ -379,20 +354,10 @@ export function CardWorkspace() {
         boutOrder: boutOrder ? Number(boutOrder) : null,
         isMainEvent: form.get('isMainEvent') === 'on',
       })
-      setFights((current) =>
-        [...current, fight].sort(
-          (left, right) =>
-            (left.boutOrder ?? Number.MAX_SAFE_INTEGER) -
-            (right.boutOrder ?? Number.MAX_SAFE_INTEGER),
-        ),
-      )
+      setFights((current) => [...current, fight].sort(byBoutOrder))
       formElement.reset()
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Fight could not be saved',
-      )
+      setError(errorMessage(requestError, 'Fight could not be saved'))
     } finally {
       setSavingFight(false)
     }
@@ -417,11 +382,7 @@ export function CardWorkspace() {
         current.map((item) => (item.id === card.id ? card : item)),
       )
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Card update failed',
-      )
+      setError(errorMessage(requestError, 'Card update failed'))
     } finally {
       setSavingEditId(null)
     }
@@ -449,18 +410,10 @@ export function CardWorkspace() {
       setFights((current) =>
         current
           .map((item) => (item.id === updated.id ? updated : item))
-          .sort(
-            (left, right) =>
-              (left.boutOrder ?? Number.MAX_SAFE_INTEGER) -
-              (right.boutOrder ?? Number.MAX_SAFE_INTEGER),
-          ),
+          .sort(byBoutOrder),
       )
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Fight update failed',
-      )
+      setError(errorMessage(requestError, 'Fight update failed'))
     } finally {
       setSavingEditId(null)
     }
@@ -478,11 +431,7 @@ export function CardWorkspace() {
       await hideFight(fight.id)
       setFights((current) => current.filter((item) => item.id !== fight.id))
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Fight could not be hidden',
-      )
+      setError(errorMessage(requestError, 'Fight could not be hidden'))
     } finally {
       setSavingEditId(null)
     }
@@ -501,11 +450,7 @@ export function CardWorkspace() {
       setFighterAliases((current) => [...current, alias])
       formElement.reset()
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Alias could not be saved',
-      )
+      setError(errorMessage(requestError, 'Alias could not be saved'))
     } finally {
       setSavingEditId(null)
     }
@@ -836,22 +781,13 @@ export function CardWorkspace() {
               Use this when you need to add or correct the official fight list
               by hand.
             </p>
-            <label className="field bout-card-select">
-              <span>Card</span>
-              <select
-                value={selectedCardId}
-                onChange={(event) => setSelectedCardId(event.target.value)}
-              >
-                {cards.length === 0 && (
-                  <option value="">Create a card first</option>
-                )}
-                {cards.map((card) => (
-                  <option key={card.id} value={card.id}>
-                    {card.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <CardSelect
+              cards={cards}
+              value={selectedCardId}
+              onChange={setSelectedCardId}
+              label="Card"
+              className="bout-card-select"
+            />
           </div>
 
           {selectedCard && (

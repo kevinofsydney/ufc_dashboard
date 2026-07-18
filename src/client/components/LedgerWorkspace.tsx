@@ -2,22 +2,23 @@ import { ClipboardCheck, LoaderCircle, Plus } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   getBets,
-  getCards,
   getFights,
   placeBet,
   postManualBet,
   settleBet,
   skipBet,
   type Bet,
-  type Card,
   type Fight,
   unsettleBet,
 } from '../api'
+import { errorMessage } from '../format'
+import { useCards } from '../use-cards'
 import {
   buildBetSelection,
   pickTypeOptionsForFight,
   type PickType,
 } from '../bet-builder'
+import { CardSelect } from './CardSelect'
 import { HelpTooltip } from './HelpTooltip'
 
 type ManualLeg = {
@@ -28,7 +29,7 @@ type ManualLeg = {
 }
 
 export function LedgerWorkspace() {
-  const [cards, setCards] = useState<Card[]>([])
+  const { cards, selectedCardId, setSelectedCardId, cardsError } = useCards()
   const [bets, setBets] = useState<Bet[]>([])
   const [fights, setFights] = useState<Fight[]>([])
   const [manualLegs, setManualLegs] = useState<ManualLeg[]>([])
@@ -36,25 +37,9 @@ export function LedgerWorkspace() {
     'moneyline',
   )
   const [manualFighterId, setManualFighterId] = useState('')
-  const [selectedCardId, setSelectedCardId] = useState('')
   const [saving, setSaving] = useState(false)
   const [busyBetId, setBusyBetId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    getCards()
-      .then((nextCards) => {
-        setCards(nextCards)
-        setSelectedCardId((current) => current || nextCards[0]?.id || '')
-      })
-      .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Cards could not be loaded',
-        ),
-      )
-  }, [])
 
   useEffect(() => {
     if (!selectedCardId) return
@@ -72,11 +57,7 @@ export function LedgerWorkspace() {
         )
       })
       .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Ledger could not be loaded',
-        ),
+        setError(errorMessage(requestError, 'Ledger could not be loaded')),
       )
   }, [selectedCardId])
 
@@ -185,11 +166,7 @@ export function LedgerWorkspace() {
       setManualPickType('moneyline')
       setManualLegs([])
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Manual bet could not be saved',
-      )
+      setError(errorMessage(requestError, 'Manual bet could not be saved'))
     } finally {
       setSaving(false)
     }
@@ -226,11 +203,7 @@ export function LedgerWorkspace() {
         replaceBet(await placeBet(bet.id, odds, stake))
       }
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Bet could not be updated',
-      )
+      setError(errorMessage(requestError, 'Bet could not be updated'))
     } finally {
       setBusyBetId(null)
     }
@@ -250,11 +223,7 @@ export function LedgerWorkspace() {
     try {
       replaceBet(await settleBet(bet.id, result, settlementOdds || null))
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Bet could not be settled',
-      )
+      setError(errorMessage(requestError, 'Bet could not be settled'))
     } finally {
       setBusyBetId(null)
     }
@@ -266,11 +235,7 @@ export function LedgerWorkspace() {
     try {
       replaceBet(await unsettleBet(bet.id))
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Bet could not be unsettled',
-      )
+      setError(errorMessage(requestError, 'Bet could not be unsettled'))
     } finally {
       setBusyBetId(null)
     }
@@ -314,28 +279,17 @@ export function LedgerWorkspace() {
   return (
     <section className="workspace-stack">
       <div className="source-toolbar">
-        <label className="field source-card-select">
-          <span>Working card</span>
-          <select
-            value={selectedCardId}
-            onChange={(event) => {
-              setSelectedCardId(event.target.value)
-              setFights([])
-              setManualFighterId('')
-              setManualPickType('moneyline')
-              setManualLegs([])
-            }}
-          >
-            {cards.length === 0 && (
-              <option value="">Create a card first</option>
-            )}
-            {cards.map((card) => (
-              <option key={card.id} value={card.id}>
-                {card.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <CardSelect
+          cards={cards}
+          value={selectedCardId}
+          onChange={(cardId) => {
+            setSelectedCardId(cardId)
+            setFights([])
+            setManualFighterId('')
+            setManualPickType('moneyline')
+            setManualLegs([])
+          }}
+        />
         <div className="board-summary">
           <span>{recommendedExposure.toFixed(2)}u proposed</span>
           <span>{placedExposure.toFixed(2)}u placed</span>
@@ -530,7 +484,11 @@ export function LedgerWorkspace() {
             <span>Notes</span>
             <textarea name="notes" rows={3} maxLength={2000} />
           </label>
-          {error && <p className="form-message form-message--error">{error}</p>}
+          {(error ?? cardsError) && (
+            <p className="form-message form-message--error">
+              {error ?? cardsError}
+            </p>
+          )}
           <button
             className="button button--primary button--full"
             type="submit"

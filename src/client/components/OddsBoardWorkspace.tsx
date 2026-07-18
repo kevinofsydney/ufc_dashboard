@@ -1,24 +1,24 @@
 import { CircleDollarSign, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
-  getCards,
   getFights,
   getMarketPrices,
   hideMarketPrice,
   postMarketPrice,
-  type Card,
   type Fight,
   type MarketPrice,
 } from '../api'
 import { synthesisConfig } from '../../shared/config/synthesis'
-import { formatCardTimestamp } from '../format'
+import { errorMessage, formatCardTimestamp } from '../format'
+import { useCards } from '../use-cards'
+import { CardSelect } from './CardSelect'
 import { HelpTooltip } from './HelpTooltip'
 
 export function OddsBoardWorkspace() {
-  const [cards, setCards] = useState<Card[]>([])
+  const { cards, selectedCardId, setSelectedCardId, cardsError, cardsLoaded } =
+    useCards()
   const [fights, setFights] = useState<Fight[]>([])
   const [prices, setPrices] = useState<MarketPrice[]>([])
-  const [selectedCardId, setSelectedCardId] = useState('')
   const [selectedFightId, setSelectedFightId] = useState('')
   const [saving, setSaving] = useState(false)
   const [hidingPriceId, setHidingPriceId] = useState<string | null>(null)
@@ -26,21 +26,7 @@ export function OddsBoardWorkspace() {
   const [error, setError] = useState<string | null>(null)
   const [staleCheckedAt, setStaleCheckedAt] = useState(() => Date.now())
 
-  useEffect(() => {
-    getCards()
-      .then((nextCards) => {
-        setCards(nextCards)
-        setSelectedCardId((current) => current || nextCards[0]?.id || '')
-        if (nextCards.length === 0) setLoading(false)
-      })
-      .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Cards could not be loaded',
-        ),
-      )
-  }, [])
+  const showLoading = loading && !(cardsLoaded && cards.length === 0)
 
   useEffect(() => {
     if (!selectedCardId) return
@@ -52,11 +38,7 @@ export function OddsBoardWorkspace() {
         setStaleCheckedAt(Date.now())
       })
       .catch((requestError: unknown) =>
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Odds could not be loaded',
-        ),
+        setError(errorMessage(requestError, 'Odds could not be loaded')),
       )
       .finally(() => setLoading(false))
   }, [selectedCardId])
@@ -97,11 +79,7 @@ export function OddsBoardWorkspace() {
       setPrices((current) => [price, ...current])
       formElement.reset()
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Price could not be saved',
-      )
+      setError(errorMessage(requestError, 'Price could not be saved'))
     } finally {
       setSaving(false)
     }
@@ -120,11 +98,7 @@ export function OddsBoardWorkspace() {
       await hideMarketPrice(price.id)
       setPrices((current) => current.filter((item) => item.id !== price.id))
     } catch (requestError) {
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Price snapshot could not be hidden',
-      )
+      setError(errorMessage(requestError, 'Price snapshot could not be hidden'))
     } finally {
       setHidingPriceId(null)
     }
@@ -133,25 +107,14 @@ export function OddsBoardWorkspace() {
   return (
     <section className="workspace-stack">
       <div className="source-toolbar">
-        <label className="field source-card-select">
-          <span>Working card</span>
-          <select
-            value={selectedCardId}
-            onChange={(event) => {
-              setLoading(true)
-              setSelectedCardId(event.target.value)
-            }}
-          >
-            {cards.length === 0 && (
-              <option value="">Create a card first</option>
-            )}
-            {cards.map((card) => (
-              <option key={card.id} value={card.id}>
-                {card.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <CardSelect
+          cards={cards}
+          value={selectedCardId}
+          onChange={(cardId) => {
+            setLoading(true)
+            setSelectedCardId(cardId)
+          }}
+        />
         <div className="odds-note">
           <RefreshCw size={15} />
           <span>
@@ -238,7 +201,11 @@ export function OddsBoardWorkspace() {
             decimals.
           </p>
 
-          {error && <p className="form-message form-message--error">{error}</p>}
+          {(error ?? cardsError) && (
+            <p className="form-message form-message--error">
+              {error ?? cardsError}
+            </p>
+          )}
           <button
             className="button button--primary button--full"
             type="submit"
@@ -268,7 +235,7 @@ export function OddsBoardWorkspace() {
             <span className="quiet-badge">{prices.length} snapshots</span>
           </div>
 
-          {loading ? (
+          {showLoading ? (
             <div className="empty-state">
               <LoaderCircle className="spin" size={23} />
               <p>Loading prices</p>

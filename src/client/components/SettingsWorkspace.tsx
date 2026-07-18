@@ -22,6 +22,7 @@ import {
   type OpenRouterModelSummary,
   type OpenRouterConnectionSummary,
 } from '../api'
+import { errorMessage } from '../format'
 import {
   clearOpenRouterSessionSettings,
   getOpenRouterSessionSettings,
@@ -81,10 +82,7 @@ export function SettingsWorkspace() {
       .catch((error: unknown) =>
         setFinancialFeedback({
           kind: 'error',
-          message:
-            error instanceof Error
-              ? error.message
-              : 'Bankroll settings could not be loaded',
+          message: errorMessage(error, 'Bankroll settings could not be loaded'),
         }),
       )
       .finally(() => setFinancialLoading(false))
@@ -150,7 +148,7 @@ export function SettingsWorkspace() {
     } catch (error) {
       setFeedback({
         kind: 'error',
-        message: error instanceof Error ? error.message : 'Settings not saved',
+        message: errorMessage(error, 'Settings not saved'),
       })
     } finally {
       setSavingConnection(false)
@@ -176,8 +174,7 @@ export function SettingsWorkspace() {
       setConnection(null)
       setFeedback({
         kind: 'error',
-        message:
-          error instanceof Error ? error.message : 'Connection check failed',
+        message: errorMessage(error, 'Connection check failed'),
       })
     } finally {
       setTesting(false)
@@ -216,10 +213,7 @@ export function SettingsWorkspace() {
     } catch (error) {
       setFeedback({
         kind: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'OpenRouter models could not be loaded',
+        message: errorMessage(error, 'OpenRouter models could not be loaded'),
       })
     } finally {
       setLoadingModels(false)
@@ -254,8 +248,7 @@ export function SettingsWorkspace() {
     } catch (error) {
       setFeedback({
         kind: 'error',
-        message:
-          error instanceof Error ? error.message : 'Model could not be saved',
+        message: errorMessage(error, 'Model could not be saved'),
       })
     } finally {
       setSavingModel(false)
@@ -274,10 +267,7 @@ export function SettingsWorkspace() {
     } catch (error) {
       setFeedback({
         kind: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Saved model could not be removed',
+        message: errorMessage(error, 'Saved model could not be removed'),
       })
     }
   }
@@ -316,10 +306,7 @@ export function SettingsWorkspace() {
     } catch (error) {
       setFinancialFeedback({
         kind: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Financial settings not saved',
+        message: errorMessage(error, 'Financial settings not saved'),
       })
     } finally {
       setFinancialSaving(false)
