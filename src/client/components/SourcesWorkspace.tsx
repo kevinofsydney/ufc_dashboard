@@ -75,14 +75,21 @@ export function SourcesWorkspace() {
 
   useEffect(() => {
     if (!selectedCardId) return
+    let cancelled = false
     Promise.all([getSources(selectedCardId), getExtractionRuns(selectedCardId)])
       .then(([nextSources, nextRuns]) => {
+        if (cancelled) return
         setSources(nextSources)
         setRuns(nextRuns)
       })
-      .catch((requestError: unknown) =>
-        setError(errorMessage(requestError, 'Sources could not be loaded')),
+      .catch(
+        (requestError: unknown) =>
+          !cancelled &&
+          setError(errorMessage(requestError, 'Sources could not be loaded')),
       )
+    return () => {
+      cancelled = true
+    }
   }, [selectedCardId])
 
   const handleSourceSubmit = async (event: FormEvent<HTMLFormElement>) => {

@@ -30,17 +30,24 @@ export function OddsBoardWorkspace() {
 
   useEffect(() => {
     if (!selectedCardId) return
+    let cancelled = false
     Promise.all([getFights(selectedCardId), getMarketPrices(selectedCardId)])
       .then(([nextFights, nextPrices]) => {
+        if (cancelled) return
         setFights(nextFights)
         setPrices(nextPrices)
         setSelectedFightId(nextFights[0]?.id ?? '')
         setStaleCheckedAt(Date.now())
       })
-      .catch((requestError: unknown) =>
-        setError(errorMessage(requestError, 'Odds could not be loaded')),
+      .catch(
+        (requestError: unknown) =>
+          !cancelled &&
+          setError(errorMessage(requestError, 'Odds could not be loaded')),
       )
-      .finally(() => setLoading(false))
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
   }, [selectedCardId])
 
   const selectedCard = useMemo(

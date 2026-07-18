@@ -41,21 +41,28 @@ export function FightBoardWorkspace() {
 
   useEffect(() => {
     if (!selectedCardId) return
+    let cancelled = false
     Promise.all([
       getFights(selectedCardId),
       getCurrentSynthesis(selectedCardId),
       getFightOutcomes(selectedCardId),
     ])
       .then(([nextFights, currentSynthesis, nextOutcomes]) => {
+        if (cancelled) return
         setFights(nextFights)
         setOutcomes(nextOutcomes)
         setSynthesis(currentSynthesis)
         setSynthesisAccepted(currentSynthesis?.status === 'accepted')
       })
-      .catch((requestError: unknown) =>
-        setError(errorMessage(requestError, 'Fights could not be loaded')),
+      .catch(
+        (requestError: unknown) =>
+          !cancelled &&
+          setError(errorMessage(requestError, 'Fights could not be loaded')),
       )
-      .finally(() => setLoading(false))
+      .finally(() => !cancelled && setLoading(false))
+    return () => {
+      cancelled = true
+    }
   }, [selectedCardId])
 
   const selectedCard = useMemo(

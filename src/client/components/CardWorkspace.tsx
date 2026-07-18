@@ -95,11 +95,17 @@ export function CardWorkspace() {
 
   useEffect(() => {
     if (!selectedCardId) return
+    let cancelled = false
     getFights(selectedCardId)
-      .then(setFights)
-      .catch((requestError: unknown) =>
-        setError(errorMessage(requestError, 'Fights could not be loaded')),
+      .then((nextFights) => !cancelled && setFights(nextFights))
+      .catch(
+        (requestError: unknown) =>
+          !cancelled &&
+          setError(errorMessage(requestError, 'Fights could not be loaded')),
       )
+    return () => {
+      cancelled = true
+    }
   }, [selectedCardId])
 
   const handleOpenCard = (cardId: string) => {

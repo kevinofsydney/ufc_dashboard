@@ -43,8 +43,10 @@ export function LedgerWorkspace() {
 
   useEffect(() => {
     if (!selectedCardId) return
+    let cancelled = false
     Promise.all([getBets(selectedCardId), getFights(selectedCardId)])
       .then(([nextBets, nextFights]) => {
+        if (cancelled) return
         setBets(nextBets)
         setFights(nextFights)
         setManualFighterId((current) =>
@@ -56,9 +58,14 @@ export function LedgerWorkspace() {
             : (nextFights[0]?.fighterA.id ?? ''),
         )
       })
-      .catch((requestError: unknown) =>
-        setError(errorMessage(requestError, 'Ledger could not be loaded')),
+      .catch(
+        (requestError: unknown) =>
+          !cancelled &&
+          setError(errorMessage(requestError, 'Ledger could not be loaded')),
       )
+    return () => {
+      cancelled = true
+    }
   }, [selectedCardId])
 
   const placedExposure = useMemo(
