@@ -960,11 +960,11 @@ Cloudflare preview URLs are public by default; protect previews with Cloudflare 
 No required CI test calls a live LLM, UFC page or odds API. Use recorded fixtures and provider mocks. Optional live contract smoke tests run manually or on a non-blocking schedule with strict spending limits.
 
 Current workflow status: installation, typecheck, lint, formatting, automated
-tests, Playwright, and the production build are wired. The committed-secret scan
-is not yet wired. The remote pre-migration export is currently in the general
-test job; move it into the credentialed deploy job immediately before migrations
-so pull requests do not require production credentials. An isolated preview
-deployment job also remains to be added and verified.
+tests, Playwright, and the production build are wired. The remote pre-migration
+export runs in the credentialed deploy job immediately before migrations, so
+ordinary pushes and pull requests do not require production credentials. The
+committed-secret scan is not yet wired. An isolated preview deployment job also
+remains to be added and verified.
 
 ### CD on `main`
 
@@ -1004,7 +1004,7 @@ Worker rollback does not reverse a D1 migration. Every destructive migration nee
 - D1 Time Travel is always on, with the retention supplied by the active plan.
 - The authenticated “Download backup” action exports relational data in a versioned JSON format without exposing Cloudflare management credentials.
 - Restore is implemented for a freshly migrated database and refuses to overwrite application data; an isolated local restore rehearsal passes.
-- A production pre-migration `wrangler d1 export` is intended to be retained as a protected workflow artifact. Its workflow placement must be corrected before deployment is enabled.
+- A production pre-migration `wrangler d1 export` is retained as a protected workflow artifact, taken in the credentialed deploy job immediately before migrations.
 - Rehearse restore against a non-production Cloudflare D1 database before declaring production backups complete.
 - Warn that a full D1 export can briefly block database requests; acceptable for this single-user workload when surfaced.
 

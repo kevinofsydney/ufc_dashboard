@@ -19,8 +19,6 @@ GitHub, and let the workflow test and deploy a green `main` commit.
 
 Before adding credentials or enabling deployment:
 
-- Move `wrangler d1 export --remote` from the general CI `test` job to the
-  credentialed `deploy` job, immediately before production migrations.
 - Add a committed-secret scan to the required CI checks.
 - Add a preview deployment job/environment with its own Worker name, D1 binding,
   secrets, Access audience, and hostname. Never use the production D1 binding in preview.
@@ -82,9 +80,8 @@ After the IDs, secrets, URL, and Access policies are verified, add this reposito
 CLOUDFLARE_DEPLOY_ENABLED=true
 ```
 
-Before that variable exists, pushes should run only the local/fixture CI suite and
-skip deployment. This is true only after the remote export has been moved out of
-the test job as described in step 0. After activation, every green push to `main`
+Before that variable exists, pushes run only the local/fixture CI suite and
+skip deployment. After activation, every green push to `main`
 exports production D1, applies migrations, deploys the Worker/static assets, and
 checks both `/health` and authenticated `/api/status`.
 

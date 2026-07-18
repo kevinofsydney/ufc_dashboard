@@ -101,10 +101,6 @@ database, paid service, or secret was used.
 
 ### Repository and pipeline hardening
 
-- Move the remote `wrangler d1 export` step out of the general `test` job and
-  into the credentialed production deployment job immediately before migrations.
-  In its current location it can make ordinary pushes and pull requests require
-  Cloudflare credentials and does not guarantee the export is adjacent to deploy.
 - Add the PRD-required committed-secret scan to CI; the current workflow does not run one.
 - Add and verify an isolated preview deployment path. The current workflow has a
   guarded production deployment but does not deploy pull requests to a preview Worker.
