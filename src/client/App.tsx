@@ -23,7 +23,6 @@ import { FightBoardWorkspace } from './components/FightBoardWorkspace'
 import { LedgerWorkspace } from './components/LedgerWorkspace'
 import { OddsBoardWorkspace } from './components/OddsBoardWorkspace'
 import { SourcesWorkspace } from './components/SourcesWorkspace'
-import { HelpTooltip } from './components/HelpTooltip'
 import { SettingsWorkspace } from './components/SettingsWorkspace'
 import { HowToWorkspace } from './components/HowToWorkspace'
 import {
@@ -51,56 +50,48 @@ const navItems: Array<{
   label: NavItem
   icon: typeof Swords
   purpose: string
-  help: string
 }> = [
   {
     label: 'How to',
     icon: CircleHelp,
     purpose:
-      'Follow the complete weekly workflow from importing an official card through reviewing evidence, placing bets, and settlement.',
-    help: 'Use this guide as the start-to-finish checklist for preparing and tracking a UFC slate.',
+      'Follow the full weekly workflow, from setting up a UFC card and reviewing source evidence to entering current odds, preparing bets, recording what you placed, and settling the event.',
   },
   {
     label: 'Cards',
     icon: CalendarDays,
     purpose:
-      'Create each UFC event, maintain its official fight list, and optionally match misspelled transcript names.',
-    help: 'Start here: import or create an event, add its fights, and map a transcript spelling only when it does not match the official fighter name.',
+      'Create or import a UFC event, confirm its official fight list, and add an alias when a transcript uses a misspelled or alternate fighter name.',
   },
   {
     label: 'Fight board',
     icon: Swords,
     purpose:
-      'Turn reviewed picks and current prices into a fight-by-fight consensus view and a budget-capped draft slate.',
-    help: 'Review consensus and evidence, create a draft slate after sources and prices are ready, then accept it to the ledger.',
+      'Review the consensus and supporting evidence for every fight. Once your sources and current odds are ready, generate a budget-capped draft slate and accept the bets you want to track in the ledger.',
   },
   {
     label: 'Sources',
     icon: BookOpenText,
     purpose:
-      'Capture capper and tracker material, review the structured extraction, and accept only evidence you trust.',
-    help: 'Paste capper or tracker material, parse it, check every extracted value and identity, then accept the reviewed run.',
+      'Choose a card, paste source material or upload a transcript CSV, have the model extract structured picks, then review and accept the result before it can affect synthesis.',
   },
   {
     label: 'Odds board',
     icon: CircleDollarSign,
     purpose:
-      'Record timestamped bookmaker prices so synthesis evaluates bets against markets that are actually available.',
-    help: 'Enter current bookmaker prices. The newest reviewed price qualifies bets; transcript-mentioned odds are evidence only.',
+      'Record the bookmaker prices currently available for each fight. Synthesis uses these timestamped prices, not odds mentioned in source material, to decide which bets qualify.',
   },
   {
     label: 'Bet ledger',
     icon: ClipboardCheck,
     purpose:
-      'Track recommendations and bets actually placed, including the real odds, stake, parlay legs, and settlement result.',
-    help: 'Record the bets actually placed, including actual odds and stake, then settle them after the event.',
+      'Compare recommended exposure with the bets you actually placed. Record the real odds and stake for singles or parlays, then settle each bet after the event.',
   },
   {
     label: 'Bankroll',
     icon: BarChart3,
     purpose:
-      'Review settled returns, ROI, performance breakdowns, capper accuracy, and downloadable application backups.',
-    help: 'Review settled performance in units and AUD, filter by date, compare breakdowns, and download a backup.',
+      'Review settled returns in units and AUD, explore ROI and performance breakdowns, check capper accuracy, and download a backup of your data.',
   },
 ]
 
@@ -108,8 +99,7 @@ const settingsNavItem = {
   label: 'Settings' as const,
   icon: Settings,
   purpose:
-    'Maintain your current bankroll, default unit size, and the language-model connection used for extraction and summaries.',
-  help: 'Set bankroll and unit size, save preferred OpenRouter models, and choose a reasoning level. API keys remain limited to this browser tab.',
+    'Set your current bankroll and default unit size, then configure the language model used for extraction and summaries. Browser-entered API keys stay in this tab and are not saved to the database.',
 }
 
 function App() {
@@ -142,7 +132,6 @@ function App() {
   const activeNavItem =
     navItems.find((item) => item.label === activeNav) ??
     (activeNav === 'Settings' ? settingsNavItem : undefined)
-  const activeHelp = activeNavItem?.help ?? ''
   const activePurpose = activeNavItem?.purpose ?? ''
 
   return (
@@ -190,14 +179,14 @@ function App() {
 
         <nav className="primary-nav" aria-label="Primary navigation">
           <p className="nav-label">Workspace</p>
-          {navItems.map(({ label, icon: Icon, help }) => (
+          {navItems.map(({ label, icon: Icon, purpose }) => (
             <button
               key={label}
               type="button"
               className={`nav-button ${activeNav === label ? 'nav-button--active' : ''}`}
               onClick={() => handleNav(label)}
               aria-label={label}
-              title={sidebarCollapsed ? `${label} — ${help}` : help}
+              title={sidebarCollapsed ? `${label} — ${purpose}` : undefined}
             >
               <Icon size={18} strokeWidth={1.8} />
               <span>{label}</span>
@@ -244,7 +233,7 @@ function App() {
           type="button"
           onClick={() => handleNav('Settings')}
           aria-label="Settings"
-          title={settingsNavItem.help}
+          title={sidebarCollapsed ? settingsNavItem.purpose : undefined}
         >
           <Settings size={18} />
           <span>Settings</span>
@@ -276,10 +265,7 @@ function App() {
 
         <div className="page-content">
           <section className="page-heading">
-            <div className="page-title-with-help">
-              <h1>{activeNav}</h1>
-              <HelpTooltip label={activeNav} text={activeHelp} align="left" />
-            </div>
+            <h1>{activeNav}</h1>
             <p>{activePurpose}</p>
           </section>
 

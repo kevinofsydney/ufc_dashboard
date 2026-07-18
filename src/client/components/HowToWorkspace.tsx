@@ -51,9 +51,9 @@ const steps: Array<{
     number: '03',
     title: 'Add predictor transcripts',
     description:
-      'Create one source per YouTube predictor, paste the transcript, and select the appropriate extraction mode.',
+      'Paste one transcript manually or upload a transcript CSV, then select the appropriate extraction mode for each source.',
     detail:
-      'Parse each source, correct ambiguous fighter names or attribution, and accept only the reviewed opinions and explicit bets you trust.',
+      'Multipart CSV rows are recombined into one source per video. Parse each source, correct ambiguous fighter names or attribution, and accept only the reviewed opinions and explicit bets you trust.',
     destination: 'Sources',
     action: 'Open Sources',
     icon: FileText,

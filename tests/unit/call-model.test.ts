@@ -25,7 +25,7 @@ describe('LLM provider contract', () => {
       },
       {
         provider: 'openrouter',
-        model: 'test-model',
+        model: 'author/exact-model-id',
         apiKey: 'test-key',
         reasoningEffort: 'high',
       },
@@ -36,7 +36,8 @@ describe('LLM provider contract', () => {
     expect(result.estimatedCostMicros).toBe(1_000)
     const requestBody = JSON.parse(
       String((fetchMock.mock.calls[0]?.[1] as RequestInit).body),
-    ) as { reasoning?: { effort?: string } }
+    ) as { model?: string; reasoning?: { effort?: string } }
+    expect(requestBody.model).toBe('author/exact-model-id')
     expect(requestBody.reasoning).toEqual({ effort: 'high' })
   })
 

@@ -1,6 +1,6 @@
 # Local testing runbook
 
-Updated: 17 July 2026
+Updated: 18 July 2026
 
 This runbook covers the implemented local MVP. It does not require Cloudflare or
 an LLM key unless the corresponding live integration is being exercised.
@@ -87,9 +87,12 @@ The automated suite never calls a live LLM, UFC page, bookmaker, production D1
 database, or paid service. The verified baseline is the full unit and
 isolated-D1 integration suite plus three Chromium checks.
 
-`npm.cmd test` includes a clean, isolated D1 restore rehearsal and a real
-deterministic synthesis transaction. `npm.cmd run test:e2e` starts and stops its
-own local server and covers interface preferences, phone-width layouts,
+`npm.cmd test` includes a clean, isolated D1 restore rehearsal, deterministic
+synthesis transactions, multi-bout UFC markup parsing, and a mocked OpenRouter
+journey through parse, review, acceptance, generated copy, allocation, and
+synthesis acceptance. `npm.cmd run test:e2e` starts and stops its own local
+server and covers interface preferences, phone-width layouts,
+the Cards accordion and vertical setup order, multipart transcript-CSV import,
 card/fight/source/capper/alias/odds mutations, duplicate handling, outcomes,
 manual parlay persistence, settlement correction, bankroll reconciliation, and
 backup download. It does not yet cover
@@ -153,6 +156,9 @@ Before production activation, manually verify:
 5. Re-synthesis after a recommendation has already been placed.
 6. Win, loss, push, void, adjusted parlay, unsettle, and overturned-result paths.
 7. Keyboard navigation and common phone widths.
-8. Help icons reveal readable guidance with both pointer hover and keyboard focus.
+8. Workspace subtitles and contextual guidance remain readable at keyboard
+   focus, 200% zoom, and common desktop and phone widths.
+9. UFC event previews report how many bouts have page odds and do not omit
+   rendered prices silently.
 
 The complete release gap list lives in `docs/implementation-status.md`.

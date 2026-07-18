@@ -57,7 +57,7 @@ The stats tracker is complementary to individual cappers. It provides broad crow
 The product is a private, single-user web application that:
 
 1. Creates UFC cards from an event page or manual entry.
-2. Ingests pasted transcripts and written tips; later it can fetch YouTube captions.
+2. Ingests pasted transcripts, multipart transcript CSV exports, and written tips; later it can fetch YouTube captions.
 3. Uses an LLM to extract structured opinions, explicit tips and aggregate statistics.
 4. Requires human review of uncertain identity mappings and extracted data.
 5. Accepts current market prices before synthesis.
@@ -575,7 +575,7 @@ Card lifecycle is independent from extraction and synthesis status. A completed 
 
 1. **Configure.** In Settings, record the current bankroll, default unit size, and tab-scoped OpenRouter connection.
 2. **Create card (Wednesday/Thursday).** Paste an official UFC event URL or create manually. Review the fetched bout list, event time, and any displayed page odds. Importing page odds requires an explicit confirmation.
-3. **Add sources.** Select/create a capper, choose source medium and extraction mode, paste the content, then parse.
+3. **Add sources.** Select/create a capper, choose source medium and extraction mode, then paste one source or upload a transcript CSV. Multipart rows sharing a video ID are validated, ordered, and combined before parsing.
 4. **Review extraction.** Correct fighter mappings, predictor attribution, markets and confidence. Accept the extraction run.
 5. **Confirm prices.** On the Odds Board, review imported page prices and enter the current bookmaker prices for moneylines and supported props under consideration.
 6. **Synthesise.** OpenRouter extracts/summarises the reviewed language while deterministic code computes consensus, eligibility and stakes for a versioned Fight Board and draft slate.
@@ -595,10 +595,13 @@ The primary card, odds and settlement workflows must be comfortable on a phone-s
 - CRUD for Cards and Cappers.
 - Card deletion requires an explicit inline confirmation and is implemented as an audited soft delete so related history is preserved.
 - Create a card manually or fetch by UFC.com URL, with a separately implemented fallback adapter if legally and technically viable.
-- Fetch order: structured page data/JSON-LD → stripped page text plus LLM → manual entry.
+- Fetch order: deterministic UFC bout markup/structured page data → JSON-LD → stripped page text plus LLM → manual entry.
 - Auto-suggesting the next event is optional until a stable discovery source is proven.
 - The fetched result is always a preview diff, never an automatic overwrite.
 - When the page explicitly displays fighter moneyline odds, preserve them as raw text in the preview. The LLM does not convert them.
+- The preview reports how many bouts have both displayed page prices and warns
+  when coverage is incomplete; missing odds remain missing and are never
+  inferred.
 - Importing UFC-page odds to the Odds Board is an explicit user choice and records `UFC event page` provenance. Unconfirmed page odds cannot qualify a bet.
 - Add, replace, rename, reorder, cancel or soft-delete fights.
 - Re-fetch merges by participant IDs/aliases and flags additions, removals, replacements and order changes.
@@ -607,6 +610,8 @@ The primary card, odds and settlement workflows must be comfortable on a phone-s
 ### 9.2 Source management and extraction
 
 - Text area handles at least 20,000 characters and displays the model-aware input limit.
+- Transcript CSV import groups rows by `video_id`, validates complete and unique `part_number` values against `part_count`, and concatenates the ordered parts without altering their text.
+- CSV import previews one source per video, permits an extraction-mode choice for each source, creates missing individual cappers from `channel_name`, and does not automatically parse or accept imported evidence.
 - Source medium and extraction mode are separate fields.
 - Parse status, retries, errors and estimated model cost are visible.
 - Review tables allow correction, rejection and unmatched resolution.
@@ -964,14 +969,11 @@ The pipeline remains agent-agnostic.
 
 ## 13. Test strategy
 
-This section remains the required coverage contract. The current automated suite
-contains 48 unit/integration tests across 11 files plus three Playwright checks.
-It proves core maths, model response validation/retry, card-fetch restrictions,
-one isolated-D1 synthesis/grade transaction, backup/restore, and the manual
-parlay/settlement/bankroll flow. Coverage still required before production is
-listed in `docs/implementation-status.md`, particularly realistic extraction
-fixtures, full lifecycle integration cases, settlement boundaries, mutation
-authorization, migration upgrades, and the complete generated-bet E2E path.
+This section remains the required coverage contract. Current execution results,
+test counts, and remaining coverage are maintained only in
+`docs/implementation-status.md`. The suite covers core maths, model response
+validation/retry, card-fetch restrictions, an isolated-D1 synthesis/grade
+transaction, backup/restore, and the manual parlay/settlement/bankroll flow.
 
 ### Unit tests — crown jewels
 
@@ -1054,6 +1056,10 @@ The authoritative completed/remaining split is maintained in
 
 ### Card management
 
+- Saved cards are presented as a single vertical accordion. Opening a card
+  reveals its complete saved bout list directly beneath that card, while UFC
+  import/merge, blank-card creation, and manual card maintenance live together
+  in one setup section below the list.
 - A current event page can produce a reviewable bout list through structured parsing or LLM fallback.
 - Saved page fixtures reproduce deterministic merge behavior in CI.
 - A fighter can be renamed, a replacement recorded, and a fight reordered/cancelled/soft-deleted without corrupting accepted extraction history.

@@ -3,14 +3,13 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   LoaderCircle,
   Plus,
   Swords,
   Trash2,
   X,
 } from 'lucide-react'
-import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
   getCards,
   getApplicationSettings,
@@ -58,7 +57,6 @@ const UFC_WEIGHT_CLASSES = [
 ] as const
 
 export function CardWorkspace() {
-  const manualBuilderRef = useRef<HTMLDetailsElement>(null)
   const [cards, setCards] = useState<Card[]>([])
   const [fights, setFights] = useState<Fight[]>([])
   const [fighterAliases, setFighterAliases] = useState<Alias[]>([])
@@ -66,7 +64,9 @@ export function CardWorkspace() {
     null,
   )
   const [selectedCardId, setSelectedCardId] = useState('')
+  const [expandedCardId, setExpandedCardId] = useState('')
   const [loading, setLoading] = useState(true)
+  const [loadingFights, setLoadingFights] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savingFight, setSavingFight] = useState(false)
   const [savingEditId, setSavingEditId] = useState<string | null>(null)
@@ -85,6 +85,7 @@ export function CardWorkspace() {
         setCards(nextCards)
         setFighterAliases(nextAliases)
         setCreateUnitValue((settings.defaultUnitValueCents / 100).toFixed(2))
+        if (nextCards.length > 0) setLoadingFights(true)
         setSelectedCardId((current) => current || nextCards[0]?.id || '')
       })
       .catch((requestError: unknown) =>
@@ -103,27 +104,30 @@ export function CardWorkspace() {
           !cancelled &&
           setError(errorMessage(requestError, 'Fights could not be loaded')),
       )
+      .finally(() => !cancelled && setLoadingFights(false))
     return () => {
       cancelled = true
     }
   }, [selectedCardId])
 
   const handleOpenCard = (cardId: string) => {
+    const isOpen = expandedCardId === cardId
+    if (selectedCardId !== cardId) {
+      setFights([])
+      setLoadingFights(true)
+    }
     setSelectedCardId(cardId)
+    setExpandedCardId(isOpen ? '' : cardId)
     setPendingDeleteCardId(null)
+  }
 
-    const manualBuilder = manualBuilderRef.current
-    if (!manualBuilder) return
-
-    manualBuilder.open = true
-    window.requestAnimationFrame(() => {
-      manualBuilder.scrollIntoView({
-        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches
-          ? 'auto'
-          : 'smooth',
-        block: 'start',
-      })
-    })
+  const handleSelectCard = (cardId: string) => {
+    if (selectedCardId !== cardId) {
+      setFights([])
+      setLoadingFights(true)
+    }
+    setSelectedCardId(cardId)
+    setExpandedCardId(cardId)
   }
 
   const handleDeleteCard = async (cardId: string) => {
@@ -136,8 +140,10 @@ export function CardWorkspace() {
       setPendingDeleteCardId(null)
       if (selectedCardId === cardId) {
         setFights([])
+        setLoadingFights(remainingCards.length > 0)
         setSelectedCardId(remainingCards[0]?.id ?? '')
       }
+      if (expandedCardId === cardId) setExpandedCardId('')
     } catch (requestError) {
       setError(errorMessage(requestError, 'Card could not be deleted'))
     } finally {
@@ -161,7 +167,10 @@ export function CardWorkspace() {
         unitValueCents: Math.round(Number(form.get('unitValue')) * 100),
       })
       setCards((current) => [card, ...current])
-      if (!selectedCardId) setSelectedCardId(card.id)
+      setSelectedCardId(card.id)
+      setExpandedCardId('')
+      setFights([])
+      setLoadingFights(true)
       formElement.reset()
     } catch (requestError) {
       setError(errorMessage(requestError, 'Card could not be saved'))
@@ -257,7 +266,9 @@ export function CardWorkspace() {
       }
       setCards((current) => [card, ...current])
       setSelectedCardId(card.id)
+      setExpandedCardId('')
       setFights(importedFights)
+      setLoadingFights(true)
       setFetchPreview(null)
       if (!pricesComplete) {
         setError(
@@ -305,6 +316,18 @@ export function CardWorkspace() {
       ),
     }
   }, [fetchPreview, fights])
+
+  const previewOddsCoverage = useMemo(() => {
+    const bouts = fetchPreview?.bouts ?? []
+    const fullyPriced = bouts.filter(
+      (bout) => bout.fighter_a_odds_raw && bout.fighter_b_odds_raw,
+    ).length
+    return {
+      total: bouts.length,
+      fullyPriced,
+      incomplete: bouts.length - fullyPriced,
+    }
+  }, [fetchPreview])
 
   const handleMergePreview = async () => {
     if (!selectedCardId || !fetchPreview) return
@@ -473,211 +496,41 @@ export function CardWorkspace() {
 
   return (
     <div className="workspace-stack">
-      <section className="fetch-card-panel">
-        <form className="alias-form" onSubmit={handleFetchPreview}>
-          <label className="field">
-            <span>UFC event URL</span>
-            <input
-              name="eventUrl"
-              type="url"
-              required
-              placeholder="https://www.ufc.com/event/..."
-            />
-          </label>
-          <button className="button button--secondary" disabled={fetchingCard}>
-            {fetchingCard ? 'Fetching preview' : 'Preview event page'}
-          </button>
-        </form>
-        {fetchPreview && (
-          <div className="fetch-preview">
-            <div>
-              <strong>{fetchPreview.event_name ?? 'Unnamed UFC event'}</strong>
-              <span>
-                {fetchPreview.event_starts_at_raw ?? 'Date not found'}
-              </span>
-              <span>{fetchPreview.bouts.length} bouts found</span>
-            </div>
-            <ol>
-              {previewDiff.bouts.map((bout) => (
-                <li key={`${bout.fighter_a}-${bout.fighter_b}`}>
-                  <div>
-                    <strong>
-                      {bout.fighter_a} vs {bout.fighter_b}
-                    </strong>
-                    {(bout.fighter_a_odds_raw || bout.fighter_b_odds_raw) && (
-                      <span className="preview-odds">
-                        Page odds: {bout.fighter_a}{' '}
-                        {bout.fighter_a_odds_raw ?? '—'} · {bout.fighter_b}{' '}
-                        {bout.fighter_b_odds_raw ?? '—'}
-                      </span>
-                    )}
-                  </div>
-                  <span className="quiet-badge">
-                    {bout.alreadyPresent ? 'already on card' : 'new bout'}
-                  </span>
-                </li>
-              ))}
-            </ol>
-            {fetchPreview.bouts.some(
-              (bout) => bout.fighter_a_odds_raw || bout.fighter_b_odds_raw,
-            ) && (
-              <label className="import-odds-option">
-                <input
-                  type="checkbox"
-                  checked={importPreviewOdds}
-                  onChange={(event) =>
-                    setImportPreviewOdds(event.target.checked)
-                  }
-                />
-                <span>
-                  Import UFC-page moneylines for newly imported bouts to the
-                  Odds Board as a reviewed snapshot
-                </span>
-              </label>
-            )}
-            {previewDiff.absentFromPreview.length > 0 && selectedCard && (
-              <p className="form-message form-message--warning">
-                {previewDiff.absentFromPreview.length} existing bout(s) are not
-                on this preview. They will stay unchanged for review.
-              </p>
-            )}
-            <div className="preview-actions">
-              <button
-                className="button button--primary"
-                type="button"
-                disabled={!fetchPreview.event_name || fetchingCard}
-                onClick={() => void handleImportPreview()}
-              >
-                Import as new card
-              </button>
-              <button
-                className="button button--secondary"
-                type="button"
-                disabled={
-                  !selectedCardId ||
-                  fetchingCard ||
-                  previewDiff.bouts.every((bout) => bout.alreadyPresent)
-                }
-                onClick={() => void handleMergePreview()}
-              >
-                Add new bouts to selected card
-              </button>
-            </div>
+      <section className="records-card">
+        <div className="section-heading">
+          <div>
+            <h2>Your cards</h2>
+            <p>Open a card to see every bout currently saved to it.</p>
           </div>
-        )}
-      </section>
-      <section className="workspace-grid">
-        <form className="editor-card" onSubmit={handleSubmit}>
-          <div className="editor-card__heading">
-            <div className="icon-tile icon-tile--warm">
-              <CalendarPlus size={19} />
-            </div>
-            <div>
-              <div className="heading-with-help">
-                <h2>Create a card</h2>
-                <HelpTooltip
-                  label="Create a card"
-                  text="Create one record per UFC event. The budget is the maximum proposed slate, and unit value converts results to AUD."
-                  align="left"
-                />
-              </div>
-            </div>
+          <span className="quiet-badge">{cards.length} total</span>
+        </div>
+
+        {loading ? (
+          <div className="empty-state">
+            <LoaderCircle className="spin" size={23} />
+            <p>Loading cards</p>
           </div>
-
-          <label className="field field--wide">
-            <span>Event name</span>
-            <input
-              name="name"
-              required
-              maxLength={120}
-              placeholder="UFC Fight Night"
-            />
-          </label>
-
-          <label className="field field--wide">
-            <span>Event date and time</span>
-            <input name="eventStartsAt" type="datetime-local" />
-            <small>
-              Interpreted in your browser’s local timezone and stored in UTC.
-            </small>
-          </label>
-
-          <div className="field-row">
-            <label className="field">
-              <span>Budget</span>
-              <div className="input-suffix">
-                <input
-                  name="budgetUnits"
-                  type="number"
-                  min="0"
-                  max="1000"
-                  defaultValue="30"
-                  required
-                />
-                <span>units</span>
-              </div>
-            </label>
-            <label className="field">
-              <span>Unit value</span>
-              <div className="input-prefix">
-                <span>$</span>
-                <input
-                  name="unitValue"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={createUnitValue}
-                  onChange={(event) => setCreateUnitValue(event.target.value)}
-                  required
-                />
-              </div>
-            </label>
+        ) : cards.length === 0 ? (
+          <div className="empty-state">
+            <CalendarPlus size={24} />
+            <p>No cards yet</p>
+            <span>Create the next event to begin the weekly workflow.</span>
           </div>
-
-          {error && <p className="form-message form-message--error">{error}</p>}
-
-          <button
-            className="button button--primary button--full"
-            type="submit"
-            disabled={saving}
-          >
-            {saving ? (
-              <LoaderCircle className="spin" size={17} />
-            ) : (
-              <CalendarPlus size={17} />
-            )}
-            {saving ? 'Saving card' : 'Create card'}
-          </button>
-        </form>
-
-        <div className="records-card">
-          <div className="section-heading">
-            <div>
-              <h2>Your cards</h2>
-            </div>
-            <span className="quiet-badge">{cards.length} total</span>
-          </div>
-
-          {loading ? (
-            <div className="empty-state">
-              <LoaderCircle className="spin" size={23} />
-              <p>Loading cards</p>
-            </div>
-          ) : cards.length === 0 ? (
-            <div className="empty-state">
-              <CalendarPlus size={24} />
-              <p>No cards yet</p>
-              <span>Create the next event to begin the weekly workflow.</span>
-            </div>
-          ) : (
-            <div className="record-list">
-              {cards.map((card) => (
-                <article className="record-row" key={card.id}>
+        ) : (
+          <div className="record-list">
+            {cards.map((card) => {
+              const isExpanded = expandedCardId === card.id
+              return (
+                <article
+                  className={`record-row ${isExpanded ? 'record-row--expanded' : ''}`}
+                  key={card.id}
+                >
                   <button
                     className="card-open-button"
                     type="button"
-                    aria-label={`View ${card.name} fights`}
-                    aria-pressed={selectedCardId === card.id}
+                    aria-label={`${isExpanded ? 'Hide' : 'Show'} ${card.name} fights`}
+                    aria-expanded={isExpanded}
+                    aria-controls={`card-bouts-${card.id}`}
                     onClick={() => handleOpenCard(card.id)}
                   >
                     <div className="record-status">
@@ -702,7 +555,7 @@ export function CardWorkspace() {
                       </span>
                     </div>
                     <span className="status-chip">{card.lifecycle}</span>
-                    <ChevronRight
+                    <ChevronDown
                       className="card-open-button__chevron"
                       size={17}
                       aria-hidden="true"
@@ -759,20 +612,74 @@ export function CardWorkspace() {
                       </button>
                     )}
                   </div>
+
+                  {isExpanded && (
+                    <div
+                      className="card-bout-expansion"
+                      id={`card-bouts-${card.id}`}
+                    >
+                      <div className="card-bout-expansion__heading">
+                        <h3>Bouts on this card</h3>
+                        {!loadingFights && (
+                          <span className="quiet-badge">
+                            {fights.length}{' '}
+                            {fights.length === 1 ? 'bout' : 'bouts'}
+                          </span>
+                        )}
+                      </div>
+                      {loadingFights ? (
+                        <div className="empty-state empty-state--compact">
+                          <LoaderCircle className="spin" size={20} />
+                          <p>Loading bouts</p>
+                        </div>
+                      ) : fights.length === 0 ? (
+                        <div className="empty-state empty-state--compact">
+                          <Swords size={22} />
+                          <p>No bouts on this card yet</p>
+                          <span>
+                            Add them in Create or update a card below.
+                          </span>
+                        </div>
+                      ) : (
+                        <ol className="card-bout-summary">
+                          {fights.map((fight) => (
+                            <li key={fight.id}>
+                              <span className="card-bout-summary__order">
+                                {fight.boutOrder ?? '—'}
+                              </span>
+                              <div>
+                                <strong>
+                                  {fight.fighterA.name} vs {fight.fighterB.name}
+                                </strong>
+                                <span>
+                                  {fight.weightClass ?? 'Weight class not set'}
+                                  {fight.isMainEvent ? ' · Main event' : ''}
+                                </span>
+                              </div>
+                              <span className="status-chip">
+                                {fight.status}
+                              </span>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </div>
+                  )}
                 </article>
-              ))}
-            </div>
-          )}
-        </div>
+              )
+            })}
+          </div>
+        )}
       </section>
 
-      <details
-        className="bout-workspace collapsible-workspace"
-        ref={manualBuilderRef}
-      >
+      <details className="card-setup-workspace collapsible-workspace">
         <summary className="collapsible-workspace__summary">
           <div>
-            <h2>Build a card manually</h2>
+            <h2>Create or update a card</h2>
+            <p>
+              Import a UFC event, create a blank card, or edit the selected card
+              and its bouts manually.
+            </p>
           </div>
           <ChevronDown
             className="collapsible-workspace__chevron"
@@ -781,241 +688,496 @@ export function CardWorkspace() {
           />
         </summary>
 
-        <div className="collapsible-workspace__content">
-          <div className="collapsible-workspace__toolbar">
-            <p>
-              Use this when you need to add or correct the official fight list
-              by hand.
-            </p>
-            <CardSelect
-              cards={cards}
-              value={selectedCardId}
-              onChange={setSelectedCardId}
-              label="Card"
-              className="bout-card-select"
-            />
-          </div>
-
-          {selectedCard && (
-            <form
-              className="card-maintenance-form"
-              key={`${selectedCard.id}:${selectedCard.updatedAt}`}
-              onSubmit={handleCardUpdate}
-            >
+        <div className="collapsible-workspace__content card-setup-workspace__content">
+          <section className="fetch-card-panel">
+            <div className="card-setup-subheading">
+              <h3>Import or merge a UFC event page</h3>
+              <p>
+                Preview the official page, then import it as a new card or add
+                only its new bouts to the selected card.
+              </p>
+            </div>
+            <form className="alias-form" onSubmit={handleFetchPreview}>
               <label className="field">
-                <span>Selected event name</span>
-                <input name="name" defaultValue={selectedCard.name} required />
-              </label>
-              <label className="field">
-                <span>Event date and time</span>
+                <span>UFC event URL</span>
                 <input
-                  name="eventStartsAt"
-                  type="datetime-local"
-                  defaultValue={
-                    selectedCard.eventStartsAtUtc
-                      ? new Date(
-                          new Date(selectedCard.eventStartsAtUtc).getTime() -
-                            new Date(
-                              selectedCard.eventStartsAtUtc,
-                            ).getTimezoneOffset() *
-                              60_000,
-                        )
-                          .toISOString()
-                          .slice(0, 16)
-                      : ''
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>Budget units</span>
-                <input
-                  name="budgetUnits"
-                  type="number"
-                  min="0"
-                  defaultValue={selectedCard.budgetUnits}
+                  name="eventUrl"
+                  type="url"
                   required
+                  placeholder="https://www.ufc.com/event/..."
                 />
-              </label>
-              <label className="field">
-                <span>Unit value AUD</span>
-                <input
-                  name="unitValue"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  defaultValue={(selectedCard.unitValueCents / 100).toFixed(2)}
-                  required
-                />
-              </label>
-              <label className="field">
-                <span>Lifecycle</span>
-                <select name="lifecycle" defaultValue={selectedCard.lifecycle}>
-                  <option value="draft">Draft</option>
-                  <option value="ready">Ready</option>
-                  <option value="in_progress">In progress</option>
-                  <option value="completed">Completed</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
               </label>
               <button
-                className="button button--secondary button--compact"
-                disabled={savingEditId === selectedCard.id}
+                className="button button--secondary"
+                disabled={fetchingCard}
               >
-                Save card changes
+                {fetchingCard ? 'Fetching preview' : 'Preview event page'}
               </button>
             </form>
-          )}
-
-          <div className="bout-layout">
-            <div className="bout-list">
-              {fights.length === 0 ? (
-                <div className="empty-state empty-state--compact">
-                  <Swords size={24} />
-                  <p>No fights on this card</p>
+            {fetchPreview && (
+              <div className="fetch-preview">
+                <div>
+                  <strong>
+                    {fetchPreview.event_name ?? 'Unnamed UFC event'}
+                  </strong>
                   <span>
-                    Add official participant names before adding sources.
+                    {fetchPreview.event_starts_at_raw ?? 'Date not found'}
+                  </span>
+                  <span>{fetchPreview.bouts.length} bouts found</span>
+                  <span>
+                    {previewOddsCoverage.fullyPriced} of{' '}
+                    {previewOddsCoverage.total} bouts have both page odds
                   </span>
                 </div>
-              ) : (
-                fights.map((fight) => (
-                  <form
-                    className="bout-edit-row"
-                    key={`${fight.id}:${fight.updatedAt ?? ''}`}
-                    onSubmit={(event) => void handleFightUpdate(event, fight)}
-                  >
-                    <input
-                      name="fighterAName"
-                      aria-label={`Fighter A for bout ${fight.boutOrder ?? ''}`}
-                      defaultValue={fight.fighterA.name}
-                      required
-                    />
-                    <span>vs</span>
-                    <input
-                      name="fighterBName"
-                      aria-label={`Fighter B for bout ${fight.boutOrder ?? ''}`}
-                      defaultValue={fight.fighterB.name}
-                      required
-                    />
-                    <select
-                      name="weightClass"
-                      aria-label="Weight class"
-                      defaultValue={fight.weightClass ?? ''}
-                    >
-                      <option value="">Select weight class</option>
-                      {fight.weightClass &&
-                        !UFC_WEIGHT_CLASSES.includes(
-                          fight.weightClass as (typeof UFC_WEIGHT_CLASSES)[number],
-                        ) && (
-                          <option value={fight.weightClass}>
-                            {fight.weightClass}
-                          </option>
+                <ol>
+                  {previewDiff.bouts.map((bout) => (
+                    <li key={`${bout.fighter_a}-${bout.fighter_b}`}>
+                      <div>
+                        <strong>
+                          {bout.fighter_a} vs {bout.fighter_b}
+                        </strong>
+                        {(bout.fighter_a_odds_raw ||
+                          bout.fighter_b_odds_raw) && (
+                          <span className="preview-odds">
+                            Page odds: {bout.fighter_a}{' '}
+                            {bout.fighter_a_odds_raw ?? '—'} · {bout.fighter_b}{' '}
+                            {bout.fighter_b_odds_raw ?? '—'}
+                          </span>
                         )}
-                      {UFC_WEIGHT_CLASSES.map((weightClass) => (
-                        <option key={weightClass} value={weightClass}>
-                          {weightClass}
-                        </option>
-                      ))}
-                    </select>
+                      </div>
+                      <span className="quiet-badge">
+                        {bout.alreadyPresent ? 'already on card' : 'new bout'}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+                {previewOddsCoverage.incomplete > 0 && (
+                  <p className="form-message form-message--warning">
+                    The UFC page does not show both prices for{' '}
+                    {previewOddsCoverage.incomplete}{' '}
+                    {previewOddsCoverage.incomplete === 1 ? 'bout' : 'bouts'}.
+                    You can still import the card, but add or review the missing
+                    prices on the Odds Board before synthesis.
+                  </p>
+                )}
+                {fetchPreview.bouts.some(
+                  (bout) => bout.fighter_a_odds_raw || bout.fighter_b_odds_raw,
+                ) && (
+                  <label className="import-odds-option">
                     <input
-                      name="boutOrder"
-                      aria-label="Bout order"
-                      type="number"
-                      min="1"
-                      max="100"
-                      defaultValue={fight.boutOrder ?? ''}
+                      type="checkbox"
+                      checked={importPreviewOdds}
+                      onChange={(event) =>
+                        setImportPreviewOdds(event.target.checked)
+                      }
                     />
-                    <select
-                      name="status"
-                      aria-label="Bout status"
-                      defaultValue={fight.status}
-                    >
-                      <option value="scheduled">Scheduled</option>
-                      <option value="cancelled">Cancelled</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                    <label className="check-field">
-                      <input
-                        name="isMainEvent"
-                        type="checkbox"
-                        defaultChecked={fight.isMainEvent}
-                      />
-                      <span>Main event</span>
-                    </label>
-                    <button
-                      className="button button--secondary button--compact"
-                      disabled={savingEditId === fight.id}
-                    >
-                      Save
-                    </button>
-                    <button
-                      className="text-button text-button--danger"
-                      type="button"
-                      disabled={savingEditId === fight.id}
-                      onClick={() => void handleHideFight(fight)}
-                    >
-                      Hide
-                    </button>
-                  </form>
-                ))
-              )}
-            </div>
+                    <span>
+                      Import UFC-page moneylines for newly imported bouts to the
+                      Odds Board as a reviewed snapshot
+                    </span>
+                  </label>
+                )}
+                {previewDiff.absentFromPreview.length > 0 && selectedCard && (
+                  <p className="form-message form-message--warning">
+                    {previewDiff.absentFromPreview.length} existing bout(s) are
+                    not on this preview. They will stay unchanged for review.
+                  </p>
+                )}
+                <div className="preview-actions">
+                  <button
+                    className="button button--primary"
+                    type="button"
+                    disabled={!fetchPreview.event_name || fetchingCard}
+                    onClick={() => void handleImportPreview()}
+                  >
+                    Import as new card
+                  </button>
+                  <button
+                    className="button button--secondary"
+                    type="button"
+                    disabled={
+                      !selectedCardId ||
+                      fetchingCard ||
+                      previewDiff.bouts.every((bout) => bout.alreadyPresent)
+                    }
+                    onClick={() => void handleMergePreview()}
+                  >
+                    Add new bouts to selected card
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+          <section className="card-create-section">
+            <form className="editor-card" onSubmit={handleSubmit}>
+              <div className="editor-card__heading">
+                <div className="icon-tile icon-tile--warm">
+                  <CalendarPlus size={19} />
+                </div>
+                <div>
+                  <div className="heading-with-help">
+                    <h3>Create a blank card manually</h3>
+                    <HelpTooltip
+                      label="Create a blank card manually"
+                      text="Create one record per UFC event. The budget is the maximum proposed slate, and unit value converts results to AUD."
+                      align="left"
+                    />
+                  </div>
+                </div>
+              </div>
 
-            <form className="bout-form" onSubmit={handleFightSubmit}>
+              <label className="field field--wide">
+                <span>Event name</span>
+                <input
+                  name="name"
+                  required
+                  maxLength={120}
+                  placeholder="UFC Fight Night"
+                />
+              </label>
+
+              <label className="field field--wide">
+                <span>Event date and time</span>
+                <input name="eventStartsAt" type="datetime-local" />
+                <small>
+                  Interpreted in your browser’s local timezone and stored in
+                  UTC.
+                </small>
+              </label>
+
               <div className="field-row">
                 <label className="field">
-                  <span>Fighter A</span>
-                  <input
-                    name="fighterAName"
-                    required
-                    maxLength={120}
-                    placeholder="Canonical name"
-                  />
+                  <span>Budget</span>
+                  <div className="input-suffix">
+                    <input
+                      name="budgetUnits"
+                      type="number"
+                      min="0"
+                      max="1000"
+                      defaultValue="30"
+                      required
+                    />
+                    <span>units</span>
+                  </div>
                 </label>
                 <label className="field">
-                  <span>Fighter B</span>
-                  <input
-                    name="fighterBName"
-                    required
-                    maxLength={120}
-                    placeholder="Canonical name"
-                  />
+                  <span>Unit value</span>
+                  <div className="input-prefix">
+                    <span>$</span>
+                    <input
+                      name="unitValue"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={createUnitValue}
+                      onChange={(event) =>
+                        setCreateUnitValue(event.target.value)
+                      }
+                      required
+                    />
+                  </div>
                 </label>
               </div>
-              <div className="field-row bout-details-row">
-                <label className="field">
-                  <span>Weight class</span>
-                  <select name="weightClass" defaultValue="">
-                    <option value="">Select weight class</option>
-                    {UFC_WEIGHT_CLASSES.map((weightClass) => (
-                      <option key={weightClass} value={weightClass}>
-                        {weightClass}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
-                  <span>Bout order</span>
-                  <input name="boutOrder" type="number" min="1" max="100" />
-                </label>
-              </div>
-              <label className="check-field">
-                <input name="isMainEvent" type="checkbox" />
-                <span>Main event</span>
-              </label>
+
+              {error && (
+                <p className="form-message form-message--error">{error}</p>
+              )}
+
               <button
                 className="button button--primary button--full"
                 type="submit"
-                disabled={savingFight || !selectedCardId}
+                disabled={saving}
               >
-                {savingFight ? (
+                {saving ? (
                   <LoaderCircle className="spin" size={17} />
                 ) : (
-                  <Plus size={17} />
+                  <CalendarPlus size={17} />
                 )}
-                {savingFight ? 'Adding fight' : 'Add fight'}
+                {saving ? 'Saving card' : 'Create card'}
               </button>
             </form>
-          </div>
+          </section>
+
+          <section className="manual-card-builder">
+            <div className="card-setup-subheading">
+              <h3>Build the selected card manually</h3>
+              <p>
+                Choose a saved card, update its event details, and add or
+                correct the official bout list by hand.
+              </p>
+            </div>
+            <div>
+              <div className="collapsible-workspace__toolbar">
+                <p>
+                  Use this when you need to add or correct the official fight
+                  list by hand.
+                </p>
+                <CardSelect
+                  cards={cards}
+                  value={selectedCardId}
+                  onChange={handleSelectCard}
+                  label="Card"
+                  className="bout-card-select"
+                />
+              </div>
+
+              {selectedCard && (
+                <form
+                  className="card-maintenance-form"
+                  key={`${selectedCard.id}:${selectedCard.updatedAt}`}
+                  onSubmit={handleCardUpdate}
+                >
+                  <label className="field">
+                    <span>Selected event name</span>
+                    <input
+                      name="name"
+                      defaultValue={selectedCard.name}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Event date and time</span>
+                    <input
+                      name="eventStartsAt"
+                      type="datetime-local"
+                      defaultValue={
+                        selectedCard.eventStartsAtUtc
+                          ? new Date(
+                              new Date(
+                                selectedCard.eventStartsAtUtc,
+                              ).getTime() -
+                                new Date(
+                                  selectedCard.eventStartsAtUtc,
+                                ).getTimezoneOffset() *
+                                  60_000,
+                            )
+                              .toISOString()
+                              .slice(0, 16)
+                          : ''
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Budget units</span>
+                    <input
+                      name="budgetUnits"
+                      type="number"
+                      min="0"
+                      defaultValue={selectedCard.budgetUnits}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Unit value AUD</span>
+                    <input
+                      name="unitValue"
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      defaultValue={(selectedCard.unitValueCents / 100).toFixed(
+                        2,
+                      )}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Lifecycle</span>
+                    <select
+                      name="lifecycle"
+                      defaultValue={selectedCard.lifecycle}
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="ready">Ready</option>
+                      <option value="in_progress">In progress</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </label>
+                  <button
+                    className="button button--secondary button--compact"
+                    disabled={savingEditId === selectedCard.id}
+                  >
+                    Save card changes
+                  </button>
+                </form>
+              )}
+
+              <div className="bout-layout">
+                <div className="bout-list">
+                  {fights.length === 0 ? (
+                    <div className="empty-state empty-state--compact">
+                      <Swords size={24} />
+                      <p>No fights on this card</p>
+                      <span>
+                        Add official participant names before adding sources.
+                      </span>
+                    </div>
+                  ) : (
+                    <>
+                      <p className="bout-list__guidance">
+                        <strong>Bout status:</strong> leave an upcoming fight as
+                        Scheduled. Mark it Cancelled if it is called off so it
+                        is excluded from synthesis without removing its history.
+                        Use Completed after the fight has taken place.
+                      </p>
+                      <div className="bout-edit-header" aria-hidden="true">
+                        <span>Fighter A</span>
+                        <span />
+                        <span>Fighter B</span>
+                        <span>Weight class</span>
+                        <span>Bout order</span>
+                        <span>Bout status</span>
+                        <span>Main event</span>
+                        <span className="bout-edit-header__actions">
+                          Actions
+                        </span>
+                      </div>
+                      {fights.map((fight) => (
+                        <form
+                          className="bout-edit-row"
+                          key={`${fight.id}:${fight.updatedAt ?? ''}`}
+                          onSubmit={(event) =>
+                            void handleFightUpdate(event, fight)
+                          }
+                        >
+                          <input
+                            name="fighterAName"
+                            aria-label={`Fighter A for bout ${fight.boutOrder ?? ''}`}
+                            defaultValue={fight.fighterA.name}
+                            required
+                          />
+                          <span>vs</span>
+                          <input
+                            name="fighterBName"
+                            aria-label={`Fighter B for bout ${fight.boutOrder ?? ''}`}
+                            defaultValue={fight.fighterB.name}
+                            required
+                          />
+                          <select
+                            name="weightClass"
+                            aria-label="Weight class"
+                            defaultValue={fight.weightClass ?? ''}
+                          >
+                            <option value="">Select weight class</option>
+                            {fight.weightClass &&
+                              !UFC_WEIGHT_CLASSES.includes(
+                                fight.weightClass as (typeof UFC_WEIGHT_CLASSES)[number],
+                              ) && (
+                                <option value={fight.weightClass}>
+                                  {fight.weightClass}
+                                </option>
+                              )}
+                            {UFC_WEIGHT_CLASSES.map((weightClass) => (
+                              <option key={weightClass} value={weightClass}>
+                                {weightClass}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            name="boutOrder"
+                            aria-label="Bout order"
+                            type="number"
+                            min="1"
+                            max="100"
+                            defaultValue={fight.boutOrder ?? ''}
+                          />
+                          <select
+                            name="status"
+                            aria-label="Bout status"
+                            defaultValue={fight.status}
+                          >
+                            <option value="scheduled">
+                              Scheduled (active)
+                            </option>
+                            <option value="cancelled">Cancelled</option>
+                            <option value="completed">Completed</option>
+                          </select>
+                          <label className="check-field">
+                            <input
+                              name="isMainEvent"
+                              type="checkbox"
+                              defaultChecked={fight.isMainEvent}
+                            />
+                            <span>Main event</span>
+                          </label>
+                          <button
+                            className="button button--secondary button--compact"
+                            disabled={savingEditId === fight.id}
+                          >
+                            Save
+                          </button>
+                          <button
+                            className="text-button text-button--danger"
+                            type="button"
+                            disabled={savingEditId === fight.id}
+                            onClick={() => void handleHideFight(fight)}
+                          >
+                            Hide
+                          </button>
+                        </form>
+                      ))}
+                    </>
+                  )}
+                </div>
+
+                <form className="bout-form" onSubmit={handleFightSubmit}>
+                  <div className="field-row">
+                    <label className="field">
+                      <span>Fighter A</span>
+                      <input
+                        name="fighterAName"
+                        required
+                        maxLength={120}
+                        placeholder="Canonical name"
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Fighter B</span>
+                      <input
+                        name="fighterBName"
+                        required
+                        maxLength={120}
+                        placeholder="Canonical name"
+                      />
+                    </label>
+                  </div>
+                  <div className="field-row bout-details-row">
+                    <label className="field">
+                      <span>Weight class</span>
+                      <select name="weightClass" defaultValue="">
+                        <option value="">Select weight class</option>
+                        {UFC_WEIGHT_CLASSES.map((weightClass) => (
+                          <option key={weightClass} value={weightClass}>
+                            {weightClass}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>Bout order</span>
+                      <input name="boutOrder" type="number" min="1" max="100" />
+                    </label>
+                  </div>
+                  <label className="check-field">
+                    <input name="isMainEvent" type="checkbox" />
+                    <span>Main event</span>
+                  </label>
+                  <button
+                    className="button button--primary button--full"
+                    type="submit"
+                    disabled={savingFight || !selectedCardId}
+                  >
+                    {savingFight ? (
+                      <LoaderCircle className="spin" size={17} />
+                    ) : (
+                      <Plus size={17} />
+                    )}
+                    {savingFight ? 'Adding fight' : 'Add fight'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </section>
         </div>
       </details>
 

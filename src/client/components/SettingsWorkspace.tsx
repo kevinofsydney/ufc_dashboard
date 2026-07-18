@@ -456,7 +456,7 @@ export function SettingsWorkspace() {
           </label>
 
           <div className="settings-model-picker">
-            <label className="field">
+            <label className="field settings-model-picker__field">
               <span>Model</span>
               <select
                 value={model}
@@ -508,10 +508,6 @@ export function SettingsWorkspace() {
                   </optgroup>
                 )}
               </select>
-              <small>
-                Saved models are always listed. Load the current catalogue to
-                browse every text model OpenRouter reports for this key.
-              </small>
             </label>
             <button
               className="button button--secondary"
@@ -525,6 +521,20 @@ export function SettingsWorkspace() {
               />
               {loadingModels ? 'Loading models' : 'Load models'}
             </button>
+            <p className="settings-model-help">
+              {model ? (
+                <>
+                  Requests send the exact model ID <code>{model}</code> to
+                  OpenRouter. The friendly model name shown in the list is only
+                  a label.
+                </>
+              ) : (
+                <>
+                  Saved models are always listed. Load the current catalogue to
+                  browse every text model OpenRouter reports for this key.
+                </>
+              )}
+            </p>
           </div>
 
           <div className="settings-custom-model">

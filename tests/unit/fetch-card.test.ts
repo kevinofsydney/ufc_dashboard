@@ -1,9 +1,59 @@
+import { readFile } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fetchCardPreview } from '../../src/server/services/fetch-card'
 
 afterEach(() => vi.unstubAllGlobals())
 
 describe('UFC event page preview', () => {
+  it('deterministically extracts every bout and displayed price from UFC markup', async () => {
+    const fixture = await readFile(
+      new URL('../fixtures/ufc-event-multiple-odds.html', import.meta.url),
+      'utf8',
+    )
+    const fetchMock = vi.fn().mockResolvedValue(new Response(fixture))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      fetchCardPreview(
+        { DB: {} as D1Database },
+        'https://www.ufc.com/event/ufc-fight-night-july-25-2026',
+      ),
+    ).resolves.toEqual({
+      event_name: 'UFC Fight Night: Ankalaev vs Guskov',
+      event_starts_at_raw: '2026-07-25T16:00:00.000Z',
+      bouts: [
+        {
+          fighter_a: 'Magomed Ankalaev',
+          fighter_b: 'Bogdan Guskov',
+          fighter_a_odds_raw: '-450',
+          fighter_b_odds_raw: '+350',
+          weight_class: 'Light Heavyweight',
+          bout_order: 1,
+          is_main_event: true,
+        },
+        {
+          fighter_a: 'Steve Erceg',
+          fighter_b: 'Ramazan Temirov',
+          fighter_a_odds_raw: '-130',
+          fighter_b_odds_raw: '+110',
+          weight_class: 'Flyweight',
+          bout_order: 2,
+          is_main_event: false,
+        },
+        {
+          fighter_a: 'Uran Satybaldiev',
+          fighter_b: 'Dustin Jacoby',
+          fighter_a_odds_raw: null,
+          fighter_b_odds_raw: null,
+          weight_class: 'Light Heavyweight',
+          bout_order: 3,
+          is_main_event: false,
+        },
+      ],
+    })
+    expect(fetchMock).toHaveBeenCalledOnce()
+  })
+
   it('prefers structured event data without calling an LLM', async () => {
     vi.stubGlobal(
       'fetch',

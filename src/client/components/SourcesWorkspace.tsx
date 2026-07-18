@@ -1,11 +1,18 @@
 import {
   BookOpenText,
+  FileUp,
   LoaderCircle,
   Plus,
   Sparkles,
   UserRoundPlus,
 } from 'lucide-react'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import {
   acceptExtraction,
   getCappers,
@@ -25,8 +32,16 @@ import {
   type Source,
 } from '../api'
 import { errorMessage, formatCardTimestamp } from '../format'
+import {
+  parseTranscriptCsv,
+  type TranscriptCsvSource,
+  type TranscriptExtractionMode,
+} from '../transcript-csv'
 import { CardSelect } from './CardSelect'
-import { HelpTooltip } from './HelpTooltip'
+
+function comparableName(value: string) {
+  return value.trim().toLocaleLowerCase()
+}
 
 export function SourcesWorkspace() {
   const [cards, setCards] = useState<Card[]>([])
@@ -45,6 +60,13 @@ export function SourcesWorkspace() {
   const [reviewConfirmed, setReviewConfirmed] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [csvSources, setCsvSources] = useState<TranscriptCsvSource[]>([])
+  const [csvFileName, setCsvFileName] = useState('')
+  const [csvImporting, setCsvImporting] = useState(false)
+  const [csvMessage, setCsvMessage] = useState<{
+    kind: 'success' | 'error'
+    text: string
+  } | null>(null)
 
   const selectedCard = cards.find((card) => card.id === selectedCardId)
   const reviewRun = runs.find((run) => run.id === reviewRunId)
@@ -59,6 +81,21 @@ export function SourcesWorkspace() {
     }
     return latest
   }, [runs])
+
+  const duplicateCsvVideoIds = useMemo(
+    () =>
+      new Set(
+        csvSources
+          .filter((csvSource) =>
+            sources.some(
+              (source) =>
+                source.sourceUrl && source.sourceUrl === csvSource.sourceUrl,
+            ),
+          )
+          .map((csvSource) => csvSource.videoId),
+      ),
+    [csvSources, sources],
+  )
 
   useEffect(() => {
     Promise.all([getCards(), getCappers(), getCapperAliases()])
@@ -245,393 +282,795 @@ export function SourcesWorkspace() {
     }
   }
 
+  const handleEditSource = (source: Source) => {
+    setEditingSource(source)
+    document
+      .getElementById('source-details')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  const handleCsvFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setCsvMessage(null)
+    setCsvSources([])
+    setCsvFileName(file.name)
+
+    if (!file.name.toLocaleLowerCase().endsWith('.csv')) {
+      setCsvMessage({ kind: 'error', text: 'Choose a .csv transcript file.' })
+      event.target.value = ''
+      return
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setCsvMessage({
+        kind: 'error',
+        text: 'The CSV is larger than 25 MB. Split it into smaller files before importing.',
+      })
+      event.target.value = ''
+      return
+    }
+
+    try {
+      const parsedSources = parseTranscriptCsv(await file.text())
+      setCsvSources(parsedSources)
+      setCsvMessage({
+        kind: 'success',
+        text: `Ready to import ${parsedSources.length} video transcript${parsedSources.length === 1 ? '' : 's'}. Check the extraction mode for each one first.`,
+      })
+    } catch (csvError) {
+      setCsvMessage({
+        kind: 'error',
+        text: errorMessage(csvError, 'The transcript CSV could not be read'),
+      })
+      event.target.value = ''
+    }
+  }
+
+  const updateCsvExtractionMode = (
+    videoId: string,
+    extractionMode: TranscriptExtractionMode,
+  ) => {
+    setCsvSources((current) =>
+      current.map((source) =>
+        source.videoId === videoId ? { ...source, extractionMode } : source,
+      ),
+    )
+  }
+
+  const handleCsvImport = async () => {
+    if (!selectedCardId) {
+      setCsvMessage({ kind: 'error', text: 'Choose a card in step 1 first.' })
+      return
+    }
+
+    const pendingSources = csvSources.filter(
+      (source) => !duplicateCsvVideoIds.has(source.videoId),
+    )
+    if (pendingSources.length === 0) {
+      setCsvMessage({
+        kind: 'error',
+        text: 'Every video in this CSV is already saved on the selected card.',
+      })
+      return
+    }
+
+    setCsvImporting(true)
+    setCsvMessage(null)
+    const nextCappers = [...cappers]
+    const importedSources: Source[] = []
+    const importedVideoIds = new Set<string>()
+
+    try {
+      for (const csvSource of pendingSources) {
+        let primaryCapper: Capper | null = null
+        if (csvSource.extractionMode === 'individual') {
+          primaryCapper =
+            nextCappers.find(
+              (capper) =>
+                comparableName(capper.name) ===
+                comparableName(csvSource.channelName),
+            ) ?? null
+          if (!primaryCapper) {
+            primaryCapper = await postCapper({
+              name: csvSource.channelName,
+              notes: 'Created from a transcript CSV import.',
+            })
+            nextCappers.push(primaryCapper)
+          }
+        }
+
+        const source = await postSource({
+          cardId: selectedCardId,
+          primaryCapperId: primaryCapper?.id ?? null,
+          medium: 'youtube',
+          extractionMode: csvSource.extractionMode,
+          title: csvSource.title,
+          sourceUrl: csvSource.sourceUrl,
+          rawText: csvSource.transcriptText,
+        })
+        importedSources.push({
+          ...source,
+          primaryCapperName: primaryCapper?.name ?? null,
+        })
+        importedVideoIds.add(csvSource.videoId)
+      }
+
+      setCsvSources([])
+      setCsvFileName('')
+      setCsvMessage({
+        kind: 'success',
+        text: `Imported ${importedSources.length} transcript${importedSources.length === 1 ? '' : 's'}. ${importedSources.length === 1 ? 'It is' : 'They are'} saved as ${importedSources.length === 1 ? 'a raw source' : 'raw sources'}; continue to step 4 to parse and review ${importedSources.length === 1 ? 'it' : 'them'}.`,
+      })
+    } catch (requestError) {
+      setCsvSources((current) =>
+        current.filter((source) => !importedVideoIds.has(source.videoId)),
+      )
+      setCsvMessage({
+        kind: 'error',
+        text: `${importedSources.length} of ${pendingSources.length} transcripts were imported before the import stopped. ${errorMessage(requestError, 'The next source could not be saved')}`,
+      })
+    } finally {
+      setCappers(nextCappers.sort((a, b) => a.name.localeCompare(b.name)))
+      if (importedSources.length > 0) {
+        setSources((current) => [...importedSources.reverse(), ...current])
+      }
+      setCsvImporting(false)
+    }
+  }
+
   return (
-    <section className="workspace-stack">
-      <div className="source-toolbar">
-        <CardSelect
-          cards={cards}
-          value={selectedCardId}
-          onChange={setSelectedCardId}
-        />
-        <form className="quick-capper" onSubmit={handleCapperSubmit}>
-          <label className="field">
-            <span>Add a capper</span>
-            <input
-              name="capperName"
-              required
-              maxLength={120}
-              placeholder="Capper or channel name"
-            />
-          </label>
-          <button
-            className="button button--secondary"
-            type="submit"
-            disabled={savingCapper}
-          >
-            {savingCapper ? (
-              <LoaderCircle className="spin" size={17} />
-            ) : (
-              <UserRoundPlus size={17} />
-            )}
-            Save
-          </button>
-        </form>
-        <form className="quick-capper" onSubmit={handleCapperAliasSubmit}>
-          <label className="field">
-            <span>Capper alias</span>
-            <select name="capperId" required>
-              <option value="">Select capper</option>
-              {cappers.map((capper) => (
-                <option key={capper.id} value={capper.id}>
-                  {capper.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>Alternate name</span>
-            <input name="aliasDisplay" required maxLength={160} />
-          </label>
-          <button className="button button--secondary" disabled={savingCapper}>
-            Add alias
-          </button>
-        </form>
-      </div>
-
-      {capperAliases.length > 0 && (
-        <div className="alias-list">
-          {capperAliases.map((alias) => (
-            <span key={alias.id}>
-              <strong>{alias.aliasDisplay}</strong> → {alias.entityName}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="source-layout">
-        <form
-          className="editor-card"
-          key={editingSource?.id ?? 'new-source'}
-          onSubmit={handleSourceSubmit}
-        >
-          <div className="editor-card__heading">
-            <div className="icon-tile icon-tile--warm">
-              <BookOpenText size={19} />
-            </div>
-            <div>
-              <div className="heading-with-help">
-                <h2>{editingSource ? 'Edit source' : 'Add a source'}</h2>
-                <HelpTooltip
-                  label="Add a source"
-                  text="Choose individual for one capper, aggregator for relayed named picks, or stats tracker for aggregate counts. Save first, then parse."
-                  align="left"
-                />
-              </div>
-            </div>
+    <section className="workspace-stack sources-workflow">
+      <ol className="sources-steps">
+        <li className="sources-step">
+          <span className="sources-step__number" aria-hidden="true">
+            1
+          </span>
+          <div className="sources-step__header">
+            <span className="sources-step__eyebrow">Step 1</span>
+            <h2>Choose the card you are researching</h2>
+            <p>
+              Every source is attached to one UFC card. Select the event before
+              adding anything so its fights are available during extraction and
+              review.
+            </p>
           </div>
-
-          <input name="cardId" type="hidden" value={selectedCardId} readOnly />
-
-          <div className="field-row">
-            <label className="field">
-              <span>Medium</span>
-              <select
-                name="medium"
-                defaultValue={editingSource?.medium ?? 'pasted_text'}
-              >
-                <option value="pasted_text">Pasted text</option>
-                <option value="youtube">YouTube</option>
-                <option value="patreon">Patreon</option>
-                <option value="webpage">Web page</option>
-                <option value="other">Other</option>
-              </select>
-            </label>
-            <label className="field">
-              <span>Extraction mode</span>
-              <select
-                name="extractionMode"
-                defaultValue={editingSource?.extractionMode ?? 'individual'}
-              >
-                <option value="individual">Individual capper</option>
-                <option value="aggregator">Aggregator</option>
-                <option value="stats_tracker">Stats tracker</option>
-              </select>
-            </label>
+          <div className="sources-card-picker">
+            <CardSelect
+              cards={cards}
+              value={selectedCardId}
+              onChange={setSelectedCardId}
+            />
           </div>
-
-          <label className="field field--wide">
-            <span>Primary capper</span>
-            <select
-              name="primaryCapperId"
-              defaultValue={editingSource?.primaryCapperId ?? ''}
-            >
-              <option value="">None / aggregate statistics</option>
-              {cappers.map((capper) => (
-                <option key={capper.id} value={capper.id}>
-                  {capper.name}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field field--wide">
-            <span>Title</span>
-            <input
-              name="title"
-              defaultValue={editingSource?.title ?? ''}
-              maxLength={200}
-              placeholder="Video or post title"
-            />
-          </label>
-
-          <label className="field field--wide">
-            <span>Source URL</span>
-            <input
-              name="sourceUrl"
-              defaultValue={editingSource?.sourceUrl ?? ''}
-              type="url"
-              maxLength={2000}
-              placeholder="https://… (optional)"
-            />
-          </label>
-
-          <label className="field field--wide">
-            <span>Transcript or tips</span>
-            <textarea
-              name="rawText"
-              defaultValue={editingSource?.rawText ?? ''}
-              required
-              maxLength={250000}
-              rows={10}
-              placeholder="Paste transcript or written tips. Review is required before any extraction can influence synthesis."
-            />
-            <small>
-              Up to 250,000 characters. Long sources are split into
-              deterministic 50,000-character chunks before extraction.
-            </small>
-          </label>
-
           {error && <p className="form-message form-message--error">{error}</p>}
+        </li>
 
-          <button
-            className="button button--primary button--full"
-            type="submit"
-            disabled={savingSource || !selectedCardId}
-          >
-            {savingSource ? (
-              <LoaderCircle className="spin" size={17} />
-            ) : (
-              <Plus size={17} />
-            )}
-            {savingSource
-              ? 'Saving source'
-              : editingSource
-                ? 'Save source changes'
-                : 'Save source'}
-          </button>
-          {editingSource && (
-            <button
-              className="button button--secondary button--full"
-              type="button"
-              onClick={() => setEditingSource(null)}
-            >
-              Cancel editing
-            </button>
-          )}
-        </form>
+        <li className="sources-step">
+          <span className="sources-step__number" aria-hidden="true">
+            2
+          </span>
+          <div className="sources-step__header">
+            <span className="sources-step__eyebrow">Step 2 · Optional</span>
+            <h2>Add cappers and alternate names</h2>
+            <p>
+              Add a capper once if the source comes from one person or channel.
+              Add an alias only when that same capper is named differently in a
+              transcript or aggregator. Skip this step for unattributed crowd
+              statistics.
+            </p>
+          </div>
+          <div className="capper-setup-grid">
+            <section className="source-setup-panel">
+              <h3>Add a capper</h3>
+              <p>
+                Use the public person or channel name you want to see throughout
+                the app.
+              </p>
+              <form className="quick-capper" onSubmit={handleCapperSubmit}>
+                <label className="field">
+                  <span>Capper or channel name</span>
+                  <input
+                    name="capperName"
+                    required
+                    maxLength={120}
+                    placeholder="For example, The MMA Guru"
+                  />
+                </label>
+                <button
+                  className="button button--secondary"
+                  type="submit"
+                  disabled={savingCapper}
+                >
+                  {savingCapper ? (
+                    <LoaderCircle className="spin" size={17} />
+                  ) : (
+                    <UserRoundPlus size={17} />
+                  )}
+                  Save capper
+                </button>
+              </form>
+            </section>
 
-        <div className="records-card">
-          <div className="section-heading">
-            <div>
-              <div className="heading-with-help">
-                <h2>Saved sources</h2>
-                <HelpTooltip
-                  label="Saved sources"
-                  text="Parse a saved source, open any run marked needs review, correct its structured JSON, and accept it before it can influence synthesis."
-                  align="left"
-                />
-              </div>
-            </div>
-            <span className="quiet-badge">{sources.length} sources</span>
+            <section className="source-setup-panel">
+              <h3>Add an alternate name</h3>
+              <p>
+                Link a nickname, misspelling, or abbreviated channel name to a
+                capper you already saved.
+              </p>
+              <form className="quick-capper" onSubmit={handleCapperAliasSubmit}>
+                <label className="field">
+                  <span>Saved capper</span>
+                  <select name="capperId" required>
+                    <option value="">Select capper</option>
+                    {cappers.map((capper) => (
+                      <option key={capper.id} value={capper.id}>
+                        {capper.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Alternate name</span>
+                  <input
+                    name="aliasDisplay"
+                    required
+                    maxLength={160}
+                    placeholder="Name used in the source"
+                  />
+                </label>
+                <button
+                  className="button button--secondary"
+                  disabled={savingCapper}
+                >
+                  Add alias
+                </button>
+              </form>
+            </section>
           </div>
 
-          {sources.length === 0 ? (
-            <div className="empty-state">
-              <BookOpenText size={24} />
-              <p>No sources on this card</p>
+          {capperAliases.length > 0 && (
+            <div className="alias-list" aria-label="Saved capper aliases">
+              {capperAliases.map((alias) => (
+                <span key={alias.id}>
+                  <strong>{alias.aliasDisplay}</strong> → {alias.entityName}
+                </span>
+              ))}
+            </div>
+          )}
+        </li>
+
+        <li className="sources-step" id="source-details">
+          <span className="sources-step__number" aria-hidden="true">
+            3
+          </span>
+          <div className="sources-step__header">
+            <span className="sources-step__eyebrow">Step 3</span>
+            <h2>Save the source material</h2>
+            <p>
+              Upload a transcript CSV or paste one transcript, set of written
+              tips, or tracker data exactly as you received it. Saving stores
+              the raw material; it does not yet add any picks to the Fight
+              board.
+            </p>
+          </div>
+
+          <div className="source-mode-guide" aria-label="Extraction mode guide">
+            <div>
+              <strong>Individual capper</strong>
+              <span>One person or channel giving their own picks or bets.</span>
+            </div>
+            <div>
+              <strong>Aggregator</strong>
               <span>
-                Add a transcript, Patreon tip, aggregator, or stats tracker.
+                A source that relays picks from several named predictors.
               </span>
             </div>
-          ) : (
-            <div className="record-list">
-              {sources.map((source) => {
-                const latestRun = latestRunBySource.get(source.id)
-                return (
-                  <article className="source-row" key={source.id}>
-                    <div className="source-row__topline">
-                      <span className="status-chip">
-                        {source.extractionMode.replace('_', ' ')}
-                      </span>
-                      <span>{source.medium.replace('_', ' ')}</span>
-                    </div>
-                    <strong>
-                      {source.title ||
-                        source.primaryCapperName ||
-                        'Untitled source'}
-                    </strong>
-                    <p>{source.rawText.slice(0, 150)}</p>
-                    <div className="source-row__footer">
-                      <span>
-                        {source.primaryCapperName ?? 'Aggregate / unattributed'}
-                      </span>
-                      <span>
-                        {formatCardTimestamp(
-                          source.addedAt,
-                          selectedCard?.displayTimezone,
-                        )}
-                      </span>
-                    </div>
-                    <div className="source-row__actions">
-                      <button
-                        className="text-button"
-                        type="button"
-                        onClick={() => setEditingSource(source)}
+            <div>
+              <strong>Stats tracker</strong>
+              <span>Aggregate vote counts, percentages, or method totals.</span>
+            </div>
+          </div>
+
+          <section
+            className="csv-import-card"
+            aria-labelledby="csv-import-title"
+          >
+            <div className="csv-import-card__heading">
+              <FileUp size={20} aria-hidden="true" />
+              <div>
+                <h3 id="csv-import-title">Upload transcript CSV</h3>
+                <p>
+                  Use this for transcript exports with one or more rows per
+                  video. Rows sharing a <code>video_id</code> are ordered by{' '}
+                  <code>part_number</code> and combined into one source. The
+                  import stops if a part is duplicated or missing.
+                </p>
+              </div>
+            </div>
+
+            <label className="field csv-import-card__file">
+              <span>Transcript CSV file</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                disabled={csvImporting}
+                onChange={(event) => void handleCsvFile(event)}
+              />
+              <small>
+                Expected columns include channel_name, video_id, video_title,
+                video_url, part_number, part_count, and transcript_text. Maximum
+                file size: 25 MB.
+              </small>
+            </label>
+
+            {csvSources.length > 0 && (
+              <div className="csv-import-preview">
+                <div className="csv-import-preview__summary">
+                  <div>
+                    <strong>{csvFileName}</strong>
+                    <span>
+                      {csvSources.length} videos from{' '}
+                      {csvSources.reduce(
+                        (total, source) => total + source.partCount,
+                        0,
+                      )}{' '}
+                      CSV rows
+                    </span>
+                  </div>
+                  <span className="quiet-badge">
+                    {csvSources.length - duplicateCsvVideoIds.size} ready
+                  </span>
+                </div>
+
+                <div className="csv-import-list">
+                  {csvSources.map((csvSource) => {
+                    const duplicate = duplicateCsvVideoIds.has(
+                      csvSource.videoId,
+                    )
+                    return (
+                      <article
+                        className={`csv-import-row ${duplicate ? 'csv-import-row--duplicate' : ''}`}
+                        key={csvSource.videoId}
                       >
-                        Edit source
-                      </button>
-                      {latestRun ? (
-                        <span className="run-status">
-                          Latest run: {latestRun.status.replace('_', ' ')}
-                        </span>
-                      ) : (
-                        <span className="run-status">Not parsed</span>
-                      )}
-                      <button
-                        className="button button--secondary button--compact"
-                        type="button"
-                        disabled={parsingSourceId === source.id}
-                        onClick={() => void handleParse(source.id)}
-                      >
-                        {parsingSourceId === source.id ? (
-                          <LoaderCircle className="spin" size={14} />
+                        <div className="csv-import-row__copy">
+                          <strong>{csvSource.title}</strong>
+                          <span>
+                            {csvSource.channelName} · {csvSource.partCount}{' '}
+                            {csvSource.partCount === 1 ? 'part' : 'parts'} ·{' '}
+                            {csvSource.transcriptText.length.toLocaleString()}{' '}
+                            characters
+                          </span>
+                        </div>
+                        {duplicate ? (
+                          <span className="status-chip">Already saved</span>
                         ) : (
-                          <Sparkles size={14} />
+                          <label className="field csv-import-row__mode">
+                            <span>Extraction mode</span>
+                            <select
+                              value={csvSource.extractionMode}
+                              disabled={csvImporting}
+                              aria-label={`Extraction mode for ${csvSource.title}`}
+                              onChange={(event) =>
+                                updateCsvExtractionMode(
+                                  csvSource.videoId,
+                                  event.target
+                                    .value as TranscriptExtractionMode,
+                                )
+                              }
+                            >
+                              <option value="individual">
+                                Individual capper
+                              </option>
+                              <option value="aggregator">Aggregator</option>
+                              <option value="stats_tracker">
+                                Stats tracker
+                              </option>
+                            </select>
+                          </label>
                         )}
-                        {parsingSourceId === source.id
-                          ? 'Parsing'
-                          : 'Parse source'}
-                      </button>
-                      {latestRun?.status === 'needs_review' && (
+                      </article>
+                    )
+                  })}
+                </div>
+
+                <button
+                  className="button button--primary"
+                  type="button"
+                  disabled={
+                    csvImporting ||
+                    csvSources.length === duplicateCsvVideoIds.size
+                  }
+                  onClick={() => void handleCsvImport()}
+                >
+                  {csvImporting ? (
+                    <LoaderCircle className="spin" size={17} />
+                  ) : (
+                    <FileUp size={17} />
+                  )}
+                  {csvImporting
+                    ? 'Importing transcripts'
+                    : `Import ${csvSources.length - duplicateCsvVideoIds.size} transcript${csvSources.length - duplicateCsvVideoIds.size === 1 ? '' : 's'}`}
+                </button>
+              </div>
+            )}
+
+            {csvMessage && (
+              <p
+                className={`csv-import-message csv-import-message--${csvMessage.kind}`}
+                role={csvMessage.kind === 'error' ? 'alert' : 'status'}
+              >
+                {csvMessage.text}
+              </p>
+            )}
+          </section>
+
+          <div className="source-entry-divider">
+            <span>Or enter one source manually</span>
+          </div>
+
+          <form
+            className="editor-card sources-editor"
+            key={editingSource?.id ?? 'new-source'}
+            onSubmit={handleSourceSubmit}
+          >
+            {editingSource && (
+              <div className="sources-editing-notice">
+                <strong>Editing a saved source</strong>
+                <span>
+                  Save your changes below. Parse it again afterward if you want
+                  a new extraction.
+                </span>
+              </div>
+            )}
+
+            <input
+              name="cardId"
+              type="hidden"
+              value={selectedCardId}
+              readOnly
+            />
+
+            <div className="field-row">
+              <label className="field">
+                <span>Where did it come from?</span>
+                <select
+                  name="medium"
+                  defaultValue={editingSource?.medium ?? 'pasted_text'}
+                >
+                  <option value="pasted_text">Pasted text</option>
+                  <option value="youtube">YouTube</option>
+                  <option value="patreon">Patreon</option>
+                  <option value="webpage">Web page</option>
+                  <option value="other">Other</option>
+                </select>
+                <small>
+                  This records the source type for your audit history.
+                </small>
+              </label>
+              <label className="field">
+                <span>Whose information is this?</span>
+                <select
+                  name="extractionMode"
+                  defaultValue={editingSource?.extractionMode ?? 'individual'}
+                >
+                  <option value="individual">Individual capper</option>
+                  <option value="aggregator">Aggregator</option>
+                  <option value="stats_tracker">Stats tracker</option>
+                </select>
+                <small>
+                  Use the guide above to choose the extraction mode.
+                </small>
+              </label>
+            </div>
+
+            <label className="field field--wide">
+              <span>Primary capper</span>
+              <select
+                name="primaryCapperId"
+                defaultValue={editingSource?.primaryCapperId ?? ''}
+              >
+                <option value="">None / aggregate statistics</option>
+                {cappers.map((capper) => (
+                  <option key={capper.id} value={capper.id}>
+                    {capper.name}
+                  </option>
+                ))}
+              </select>
+              <small>
+                Choose the capper for an individual source. Leave this empty for
+                aggregators and stats trackers.
+              </small>
+            </label>
+
+            <label className="field field--wide">
+              <span>Title · Optional</span>
+              <input
+                name="title"
+                defaultValue={editingSource?.title ?? ''}
+                maxLength={200}
+                placeholder="Video, post, or tracker title"
+              />
+            </label>
+
+            <label className="field field--wide">
+              <span>Source URL · Optional</span>
+              <input
+                name="sourceUrl"
+                defaultValue={editingSource?.sourceUrl ?? ''}
+                type="url"
+                maxLength={2000}
+                placeholder="https://…"
+              />
+            </label>
+
+            <label className="field field--wide">
+              <span>Transcript, written tips, or tracker data</span>
+              <textarea
+                name="rawText"
+                defaultValue={editingSource?.rawText ?? ''}
+                required
+                maxLength={250000}
+                rows={12}
+                placeholder="Paste the complete source material here. Keep the capper's wording and context so the extraction can distinguish final picks from hypotheticals or discussion."
+              />
+              <small>
+                Up to 250,000 characters. Long sources are split into
+                deterministic 50,000-character chunks before extraction.
+              </small>
+            </label>
+
+            <button
+              className="button button--primary button--full"
+              type="submit"
+              disabled={savingSource || !selectedCardId}
+            >
+              {savingSource ? (
+                <LoaderCircle className="spin" size={17} />
+              ) : (
+                <Plus size={17} />
+              )}
+              {savingSource
+                ? 'Saving source'
+                : editingSource
+                  ? 'Save source changes'
+                  : 'Save source'}
+            </button>
+            {editingSource && (
+              <button
+                className="button button--secondary button--full"
+                type="button"
+                onClick={() => setEditingSource(null)}
+              >
+                Cancel editing
+              </button>
+            )}
+          </form>
+        </li>
+
+        <li className="sources-step" id="saved-sources">
+          <span className="sources-step__number" aria-hidden="true">
+            4
+          </span>
+          <div className="sources-step__header">
+            <span className="sources-step__eyebrow">Step 4</span>
+            <h2>Parse, review, and accept</h2>
+            <p>
+              Work through each saved source below. Its extracted picks remain
+              inactive until you review the structured result and explicitly
+              accept it.
+            </p>
+          </div>
+
+          <ol className="source-action-sequence">
+            <li>
+              <strong>Parse source</strong>
+              <span>
+                The model turns the raw material into structured picks.
+              </span>
+            </li>
+            <li>
+              <strong>Review extraction</strong>
+              <span>
+                Check identities, picks, markets, confidence, and reasoning.
+              </span>
+            </li>
+            <li>
+              <strong>Accept reviewed extraction</strong>
+              <span>
+                Only this action makes the evidence available to synthesis.
+              </span>
+            </li>
+          </ol>
+
+          <p className="sources-prerequisite">
+            Parsing uses the language model configured in Settings. If the app
+            says that a model or API key is missing, open Settings first; the
+            raw source you saved here will remain intact.
+          </p>
+
+          <div className="records-card sources-records">
+            <div className="section-heading">
+              <div>
+                <h3>Saved sources for this card</h3>
+              </div>
+              <span className="quiet-badge">{sources.length} sources</span>
+            </div>
+
+            {sources.length === 0 ? (
+              <div className="empty-state">
+                <BookOpenText size={24} />
+                <p>No saved sources yet</p>
+                <span>
+                  Complete step 3 first. Your saved source will appear here with
+                  a Parse source button.
+                </span>
+              </div>
+            ) : (
+              <div className="record-list">
+                {sources.map((source) => {
+                  const latestRun = latestRunBySource.get(source.id)
+                  return (
+                    <article className="source-row" key={source.id}>
+                      <div className="source-row__topline">
+                        <span className="status-chip">
+                          {source.extractionMode.replace('_', ' ')}
+                        </span>
+                        <span>{source.medium.replace('_', ' ')}</span>
+                      </div>
+                      <strong>
+                        {source.title ||
+                          source.primaryCapperName ||
+                          'Untitled source'}
+                      </strong>
+                      <p>{source.rawText.slice(0, 150)}</p>
+                      <div className="source-row__footer">
+                        <span>
+                          {source.primaryCapperName ??
+                            'Aggregate / unattributed'}
+                        </span>
+                        <span>
+                          {formatCardTimestamp(
+                            source.addedAt,
+                            selectedCard?.displayTimezone,
+                          )}
+                        </span>
+                      </div>
+                      <div className="source-row__actions">
                         <button
-                          className="button button--primary button--compact"
+                          className="text-button"
                           type="button"
-                          disabled={acceptingRunId === latestRun.id}
-                          onClick={() => openReview(latestRun)}
+                          onClick={() => handleEditSource(source)}
                         >
-                          {acceptingRunId ? (
+                          Edit source
+                        </button>
+                        {latestRun ? (
+                          <span className="run-status">
+                            Latest run: {latestRun.status.replace('_', ' ')}
+                          </span>
+                        ) : (
+                          <span className="run-status">Not parsed</span>
+                        )}
+                        <button
+                          className="button button--secondary button--compact"
+                          type="button"
+                          disabled={parsingSourceId === source.id}
+                          onClick={() => void handleParse(source.id)}
+                        >
+                          {parsingSourceId === source.id ? (
                             <LoaderCircle className="spin" size={14} />
                           ) : (
                             <Sparkles size={14} />
                           )}
-                          Review extraction
+                          {parsingSourceId === source.id
+                            ? 'Parsing'
+                            : 'Parse source'}
                         </button>
-                      )}
-                    </div>
-                  </article>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-      {reviewRunId && (
-        <section
-          className="review-card"
-          aria-labelledby="extraction-review-title"
-        >
-          <div className="section-heading">
-            <div>
-              <div className="heading-with-help">
-                <h2 id="extraction-review-title">
-                  Review structured extraction
-                </h2>
-                <HelpTooltip
-                  label="Review structured extraction"
-                  text="Verify fighter, fight, capper, market, confidence, method, and round values. Acceptance makes this run active; the raw response stays auditable."
-                  align="left"
-                />
+                        {latestRun?.status === 'needs_review' && (
+                          <button
+                            className="button button--primary button--compact"
+                            type="button"
+                            disabled={acceptingRunId === latestRun.id}
+                            onClick={() => openReview(latestRun)}
+                          >
+                            {acceptingRunId ? (
+                              <LoaderCircle className="spin" size={14} />
+                            ) : (
+                              <Sparkles size={14} />
+                            )}
+                            Review extraction
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  )
+                })}
               </div>
-            </div>
-            <button
-              className="button button--secondary button--compact"
-              type="button"
-              onClick={() => setReviewRunId(null)}
-            >
-              Close
-            </button>
-          </div>
-          <p className="review-card__guidance">
-            Check every fight and fighter ID against the card. Correct any pick,
-            market, confidence, or reasoning. The original model response
-            remains unchanged in the audit history.
-          </p>
-          {reviewSource?.extractionMode === 'aggregator' && (
-            <div className="review-reference">
-              <strong>Capper attribution reference</strong>
-              <p>
-                Each opinion and tip needs an exact{' '}
-                <code>attributed_to_raw</code> name or an{' '}
-                <code>attributed_to_capper_id</code> from this list.
-              </p>
-              <div>
-                {cappers.map((capper) => (
-                  <code key={capper.id}>
-                    {capper.name}: {capper.id}
-                  </code>
-                ))}
-              </div>
-            </div>
-          )}
-          <label className="field field--wide">
-            <span>Reviewed JSON</span>
-            <textarea
-              className="review-json"
-              value={reviewJson}
-              onChange={(event) => {
-                setReviewJson(event.target.value)
-                setReviewConfirmed(false)
-              }}
-              rows={18}
-              spellCheck={false}
-            />
-          </label>
-          <label className="review-confirmation">
-            <input
-              type="checkbox"
-              checked={reviewConfirmed}
-              onChange={(event) => setReviewConfirmed(event.target.checked)}
-            />
-            <span>I reviewed every opinion, tip, and fighter mapping.</span>
-          </label>
-          {reviewError && (
-            <p className="form-message form-message--error">{reviewError}</p>
-          )}
-          <button
-            className="button button--primary"
-            type="button"
-            disabled={!reviewConfirmed || acceptingRunId === reviewRunId}
-            onClick={() => void handleAccept()}
-          >
-            {acceptingRunId === reviewRunId ? (
-              <LoaderCircle className="spin" size={17} />
-            ) : (
-              <Sparkles size={17} />
             )}
-            Accept reviewed extraction
-          </button>
-        </section>
-      )}
+          </div>
+          {reviewRunId && (
+            <section
+              className="review-card"
+              aria-labelledby="extraction-review-title"
+            >
+              <div className="section-heading">
+                <div>
+                  <h3 id="extraction-review-title">
+                    Review structured extraction
+                  </h3>
+                </div>
+                <button
+                  className="button button--secondary button--compact"
+                  type="button"
+                  onClick={() => setReviewRunId(null)}
+                >
+                  Close
+                </button>
+              </div>
+              <p className="review-card__guidance">
+                Check every fight and fighter ID against the card. Correct any
+                pick, market, confidence, method, round, or reasoning that is
+                wrong. The original model response remains unchanged in the
+                audit history.
+              </p>
+              {reviewSource?.extractionMode === 'aggregator' && (
+                <div className="review-reference">
+                  <strong>Capper attribution reference</strong>
+                  <p>
+                    Each opinion and tip needs an exact{' '}
+                    <code>attributed_to_raw</code> name or an{' '}
+                    <code>attributed_to_capper_id</code> from this list.
+                  </p>
+                  <div>
+                    {cappers.map((capper) => (
+                      <code key={capper.id}>
+                        {capper.name}: {capper.id}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <label className="field field--wide">
+                <span>Reviewed JSON</span>
+                <textarea
+                  className="review-json"
+                  value={reviewJson}
+                  onChange={(event) => {
+                    setReviewJson(event.target.value)
+                    setReviewConfirmed(false)
+                  }}
+                  rows={18}
+                  spellCheck={false}
+                />
+              </label>
+              <label className="review-confirmation">
+                <input
+                  type="checkbox"
+                  checked={reviewConfirmed}
+                  onChange={(event) => setReviewConfirmed(event.target.checked)}
+                />
+                <span>I reviewed every opinion, tip, and fighter mapping.</span>
+              </label>
+              {reviewError && (
+                <p className="form-message form-message--error">
+                  {reviewError}
+                </p>
+              )}
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={!reviewConfirmed || acceptingRunId === reviewRunId}
+                onClick={() => void handleAccept()}
+              >
+                {acceptingRunId === reviewRunId ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <Sparkles size={17} />
+                )}
+                Accept reviewed extraction
+              </button>
+            </section>
+          )}
+        </li>
+      </ol>
     </section>
   )
 }

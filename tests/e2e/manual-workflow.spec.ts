@@ -66,6 +66,20 @@ test('keeps every workspace inside a phone viewport', async ({ page }) => {
     await expect(
       page.getByRole('heading', { name: workspace, exact: true, level: 1 }),
     ).toBeVisible()
+    if (workspace === 'Sources') {
+      const mobileCsv = [
+        'channel_name,video_id,video_title,video_url,part_number,part_count,transcript_text',
+        'Mobile Channel,mobile-video,Mobile CSV preview,https://youtube.test/watch?v=mobile-video,1,1,Transcript text',
+      ].join('\n')
+      await page.getByLabel('Transcript CSV file').setInputFiles({
+        name: 'mobile-transcripts.csv',
+        mimeType: 'text/csv',
+        buffer: Buffer.from(mobileCsv),
+      })
+      await expect(
+        page.getByText('Mobile CSV preview', { exact: true }),
+      ).toBeVisible()
+    }
     const overflowingElements = await page
       .locator('body *')
       .evaluateAll((elements) =>
@@ -102,18 +116,15 @@ test('creates a card and opens its persisted fight workspace', async ({
   const uniqueCapper = `E2E Capper ${auditId}`
   await page.goto('/')
 
-  const pageHelp = page.getByRole('button', {
-    name: 'Help: Fight board',
-    exact: true,
-  })
-  await pageHelp.hover()
   await expect(
-    page.getByRole('tooltip').filter({ hasText: 'Review consensus' }),
+    page.getByText(
+      'Review the consensus and supporting evidence for every fight.',
+      { exact: false },
+    ),
   ).toBeVisible()
-  await pageHelp.focus()
   await expect(
-    page.getByRole('tooltip').filter({ hasText: 'Review consensus' }),
-  ).toBeVisible()
+    page.getByRole('button', { name: 'Help: Fight board', exact: true }),
+  ).toHaveCount(0)
 
   await page.getByRole('button', { name: 'How to' }).click()
   await expect(
@@ -125,6 +136,32 @@ test('creates a card and opens its persisted fight workspace', async ({
   await expect(
     page.getByRole('heading', { name: 'OpenRouter connection' }),
   ).toBeVisible()
+  const pageHeadingBox = await page.locator('.page-heading').boundingBox()
+  const settingsWorkspaceBox = await page
+    .locator('.settings-workspace')
+    .boundingBox()
+  expect(pageHeadingBox).not.toBeNull()
+  expect(settingsWorkspaceBox).not.toBeNull()
+  expect(
+    Math.abs((pageHeadingBox?.x ?? 0) - (settingsWorkspaceBox?.x ?? 0)),
+  ).toBeLessThanOrEqual(1)
+
+  const modelSelectBox = await page
+    .getByLabel('Model ID', { exact: true })
+    .boundingBox()
+  const loadModelsBox = await page
+    .getByRole('button', { name: 'Load models' })
+    .boundingBox()
+  expect(modelSelectBox).not.toBeNull()
+  expect(loadModelsBox).not.toBeNull()
+  expect(
+    Math.abs((modelSelectBox?.y ?? 0) - (loadModelsBox?.y ?? 0)),
+  ).toBeLessThanOrEqual(1)
+
+  const reasoningPadding = await page
+    .getByLabel('Thinking / reasoning')
+    .evaluate((element) => getComputedStyle(element).paddingLeft)
+  expect(reasoningPadding).toBe('40px')
   const bankrollInput = page.getByLabel('Current bankroll')
   const unitInput = page.getByLabel('Default unit size')
   const originalBankroll = await bankrollInput.inputValue()
@@ -146,6 +183,9 @@ test('creates a card and opens its persisted fight workspace', async ({
   await page.getByLabel('Custom model ID').fill('test/model')
   await page.getByRole('button', { name: 'Save model' }).click()
   await page.getByLabel('Model ID', { exact: true }).selectOption('test/model')
+  await expect(
+    page.getByText('Requests send the exact model ID', { exact: false }),
+  ).toContainText('test/model')
   await page.getByLabel('Thinking / reasoning').selectOption('high')
   await page.getByRole('button', { name: 'Save connection' }).click()
   await expect(page.getByText('Configured for this tab')).toBeVisible()
@@ -166,10 +206,33 @@ test('creates a card and opens its persisted fight workspace', async ({
     .click()
 
   await page.getByRole('button', { name: 'Cards' }).click()
-  const manualBuilder = page.locator('details').filter({
-    has: page.getByRole('heading', { name: 'Build a card manually' }),
+  const cardSetup = page.locator('details').filter({
+    has: page.getByRole('heading', { name: 'Create or update a card' }),
   })
-  await expect(manualBuilder).not.toHaveAttribute('open', '')
+  const cardsSectionBox = await page.locator('.records-card').boundingBox()
+  const cardSetupBox = await cardSetup.boundingBox()
+  expect(cardsSectionBox).not.toBeNull()
+  expect(cardSetupBox).not.toBeNull()
+  expect(cardSetupBox?.y ?? 0).toBeGreaterThan(cardsSectionBox?.y ?? 0)
+  expect(
+    Math.abs((cardsSectionBox?.x ?? 0) - (cardSetupBox?.x ?? 0)),
+  ).toBeLessThanOrEqual(1)
+  await expect(cardSetup).not.toHaveAttribute('open', '')
+  await cardSetup.locator('summary').click()
+  await expect(cardSetup).toHaveAttribute('open', '')
+  const setupSections = await cardSetup
+    .locator('.fetch-card-panel, .card-create-section, .manual-card-builder')
+    .evaluateAll((sections) =>
+      sections.map((section) => {
+        const box = section.getBoundingClientRect()
+        return { x: box.x, y: box.y }
+      }),
+    )
+  expect(setupSections).toHaveLength(3)
+  expect(setupSections.map(({ y }) => y)).toEqual(
+    [...setupSections.map(({ y }) => y)].sort((a, b) => a - b),
+  )
+  expect(new Set(setupSections.map(({ x }) => Math.round(x))).size).toBe(1)
 
   const transcriptMatching = page.locator('details').filter({
     has: page.getByRole('heading', { name: 'Match transcript spellings' }),
@@ -182,9 +245,11 @@ test('creates a card and opens its persisted fight workspace', async ({
   ).toBeVisible()
   await transcriptMatching.locator('summary').click()
 
-  const createCardForm = page
-    .locator('form')
-    .filter({ has: page.getByRole('heading', { name: 'Create a card' }) })
+  const createCardForm = page.locator('form').filter({
+    has: page.getByRole('heading', {
+      name: 'Create a blank card manually',
+    }),
+  })
   await createCardForm
     .getByLabel('Event name', { exact: true })
     .fill(uniqueName)
@@ -197,9 +262,14 @@ test('creates a card and opens its persisted fight workspace', async ({
     .filter({ hasText: uniqueName })
   await expect(createdCardRow).toBeVisible()
   await createdCardRow
-    .getByRole('button', { name: `View ${uniqueName} fights` })
+    .getByRole('button', { name: `Show ${uniqueName} fights` })
     .click()
-  await expect(manualBuilder).toHaveAttribute('open', '')
+  await expect(
+    createdCardRow.getByRole('heading', { name: 'Bouts on this card' }),
+  ).toBeVisible()
+  await expect(
+    createdCardRow.getByText('No bouts on this card yet'),
+  ).toBeVisible()
   await expect(
     page.locator('.bout-card-select select option:checked'),
   ).toHaveText(uniqueName)
@@ -223,10 +293,32 @@ test('creates a card and opens its persisted fight workspace', async ({
   await expect(page.getByLabel('Fighter B for bout 1')).toHaveValue(
     'E2E Fighter Beta',
   )
+  await expect(createdCardRow).toContainText(
+    'E2E Fighter Alpha vs E2E Fighter Beta',
+  )
   const firstBout = page.locator('form.bout-edit-row').filter({
     has: page.getByLabel('Fighter A for bout 1'),
   })
+  const boutEditHeader = page.locator('.bout-edit-header')
+  for (const heading of [
+    'Fighter A',
+    'Fighter B',
+    'Weight class',
+    'Bout order',
+    'Bout status',
+    'Main event',
+    'Actions',
+  ]) {
+    await expect(boutEditHeader).toContainText(heading)
+  }
   await expect(firstBout.getByLabel('Weight class')).toHaveValue('Lightweight')
+  await expect(firstBout.getByLabel('Bout status')).toHaveValue('scheduled')
+  await expect(
+    firstBout.getByLabel('Bout status').locator('option:checked'),
+  ).toHaveText('Scheduled (active)')
+  const boutStatusBox = await firstBout.getByLabel('Bout status').boundingBox()
+  expect(boutStatusBox).not.toBeNull()
+  expect(boutStatusBox?.width ?? 0).toBeGreaterThanOrEqual(136)
 
   await addFightForm
     .getByLabel('Fighter A', { exact: true })
@@ -273,21 +365,77 @@ test('creates a card and opens its persisted fight workspace', async ({
   ).toBeVisible()
 
   await page.getByRole('button', { name: 'Sources' }).click()
+  const sourceSteps = page.locator('.sources-step')
+  await expect(sourceSteps).toHaveCount(4)
+  await expect(
+    page.getByRole('heading', {
+      name: 'Choose the card you are researching',
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', {
+      name: 'Add cappers and alternate names',
+    }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Save the source material' }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Parse, review, and accept' }),
+  ).toBeVisible()
+  const stepPositions = await sourceSteps.evaluateAll((steps) =>
+    steps.map((step) => step.getBoundingClientRect().top),
+  )
+  expect(stepPositions).toEqual([...stepPositions].sort((a, b) => a - b))
+  await expect(
+    page.getByText(
+      'Only this action makes the evidence available to synthesis.',
+    ),
+  ).toBeVisible()
   await page.getByLabel('Working card').selectOption({ label: uniqueName })
-  await page.getByLabel('Add a capper').fill(uniqueCapper)
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByLabel('Add a capper')).toHaveValue('')
+
+  const csvVideoId = `csv-${auditId}`
+  const csvTitle = `E2E CSV Transcript ${auditId}`
+  const transcriptCsv = [
+    'record_id,channel_name,video_id,video_title,video_url,published_at,source,status,part_number,part_count,transcript_text,captured_at,notes',
+    `${csvVideoId}-auto-2,E2E CSV Channel ${auditId},${csvVideoId},${csvTitle},https://youtube.test/watch?v=${csvVideoId},2026-07-16T00:00:00Z,automatic,CAPTURED_AUTO,2,2,second half.,2026-07-17T00:00:00Z,`,
+    `${csvVideoId}-auto-1,E2E CSV Channel ${auditId},${csvVideoId},${csvTitle},https://youtube.test/watch?v=${csvVideoId},2026-07-16T00:00:00Z,automatic,CAPTURED_AUTO,1,2,"First half, ",2026-07-17T00:00:00Z,`,
+  ].join('\r\n')
+  await page.getByLabel('Transcript CSV file').setInputFiles({
+    name: 'transcripts.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(transcriptCsv),
+  })
+  await expect(page.getByText(csvTitle, { exact: true })).toBeVisible()
+  await expect(page.getByText(/2 parts · 24 characters/)).toBeVisible()
+  await expect(page.getByLabel(`Extraction mode for ${csvTitle}`)).toHaveValue(
+    'individual',
+  )
+  await page.getByRole('button', { name: 'Import 1 transcript' }).click()
+  await expect(
+    page.getByText(
+      'Imported 1 transcript. It is saved as a raw source; continue to step 4 to parse and review it.',
+    ),
+  ).toBeVisible()
+  const importedCsvSource = page.locator('.source-row').filter({
+    hasText: csvTitle,
+  })
+  await expect(importedCsvSource).toContainText('First half, second half.')
+
+  await page.getByLabel('Capper or channel name').fill(uniqueCapper)
+  await page.getByRole('button', { name: 'Save capper' }).click()
+  await expect(page.getByLabel('Capper or channel name')).toHaveValue('')
   await expect(
     page.getByRole('option', { name: uniqueCapper, exact: true }),
   ).toHaveCount(2)
 
-  await page.getByLabel('Add a capper').fill(uniqueCapper)
-  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  await page.getByLabel('Capper or channel name').fill(uniqueCapper)
+  await page.getByRole('button', { name: 'Save capper' }).click()
   await expect(
     page.getByText('A capper with that name already exists'),
   ).toBeVisible()
 
-  await page.getByLabel('Capper alias').selectOption({ label: uniqueCapper })
+  await page.getByLabel('Saved capper').selectOption({ label: uniqueCapper })
   await page.getByLabel('Alternate name').fill(`Alias ${auditId}`)
   await page.getByRole('button', { name: 'Add alias' }).click()
   await expect(
@@ -295,19 +443,23 @@ test('creates a card and opens its persisted fight workspace', async ({
   ).toBeVisible()
 
   await page.getByLabel('Primary capper').selectOption({ label: uniqueCapper })
-  await page.getByLabel('Title').fill(`E2E Functional Source ${auditId}`)
   await page
-    .getByLabel('Transcript or tips', { exact: false })
+    .getByLabel('Title · Optional', { exact: true })
+    .fill(`E2E Functional Source ${auditId}`)
+  await page
+    .getByLabel('Transcript, written tips, or tracker data')
     .fill('E2E Fighter Alpha by decision after a competitive fight.')
   await page.getByRole('button', { name: 'Save source' }).click()
-  await expect(page.getByLabel('Title')).toHaveValue('')
+  await expect(
+    page.getByLabel('Title · Optional', { exact: true }),
+  ).toHaveValue('')
   const savedSource = page.locator('.source-row').filter({
     hasText: `E2E Functional Source ${auditId}`,
   })
   await expect(savedSource).toBeVisible()
   await savedSource.getByRole('button', { name: 'Edit source' }).click()
   await page
-    .getByLabel('Title')
+    .getByLabel('Title · Optional', { exact: true })
     .fill(`E2E Functional Source ${auditId} updated`)
   await page.getByRole('button', { name: 'Save source changes' }).click()
   await expect(
@@ -468,8 +620,12 @@ test('creates a card and opens its persisted fight workspace', async ({
   await page.getByRole('button', { name: 'Cards' }).click()
   const cardRow = page.locator('.record-row').filter({ hasText: uniqueName })
   await cardRow
-    .getByRole('button', { name: `View ${uniqueName} fights` })
+    .getByRole('button', { name: `Show ${uniqueName} fights` })
     .click()
+  const returnedCardSetup = page.locator('details').filter({
+    has: page.getByRole('heading', { name: 'Create or update a card' }),
+  })
+  await returnedCardSetup.locator('summary').click()
   const gammaBout = page.locator('form.bout-edit-row').filter({
     has: page.getByLabel('Fighter A for bout 2'),
   })
