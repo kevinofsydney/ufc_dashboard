@@ -193,7 +193,13 @@ export async function listAnalyticsBets(
        ORDER BY bets.created_at DESC`,
     )
     .all<BetRow>()
-  return result.results.map(mapBet)
+  const bets = result.results.map(mapBet)
+  const legs = await listLegsForBets(
+    db,
+    bets.map((bet) => bet.id),
+  )
+  for (const bet of bets) bet.legs = legs.get(bet.id) ?? []
+  return bets
 }
 
 export async function createManualBet(

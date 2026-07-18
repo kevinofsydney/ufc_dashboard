@@ -45,14 +45,20 @@ export function saveOpenRouterSessionSettings(
   if (!apiKey || !model) {
     throw new Error('Enter both an OpenRouter API key and model')
   }
-  window.sessionStorage.setItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      apiKey,
-      model,
-      reasoningEffort: settings.reasoningEffort,
-    }),
-  )
+  try {
+    window.sessionStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        apiKey,
+        model,
+        reasoningEffort: settings.reasoningEffort,
+      }),
+    )
+  } catch {
+    throw new Error(
+      'This browser blocks session storage, so the OpenRouter connection cannot be kept for this tab',
+    )
+  }
 }
 
 export function clearOpenRouterSessionSettings(): void {

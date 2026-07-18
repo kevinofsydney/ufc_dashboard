@@ -24,6 +24,7 @@ import {
   type ExtractionRun,
   type Source,
 } from '../api'
+import { formatCardTimestamp } from '../format'
 import { HelpTooltip } from './HelpTooltip'
 
 export function SourcesWorkspace() {
@@ -44,6 +45,7 @@ export function SourcesWorkspace() {
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const selectedCard = cards.find((card) => card.id === selectedCardId)
   const reviewRun = runs.find((run) => run.id === reviewRunId)
   const reviewSource = sources.find(
     (source) => source.id === reviewRun?.sourceId,
@@ -513,9 +515,10 @@ export function SourcesWorkspace() {
                         {source.primaryCapperName ?? 'Aggregate / unattributed'}
                       </span>
                       <span>
-                        {new Date(source.addedAt).toLocaleString('en-AU', {
-                          timeZone: 'Australia/Sydney',
-                        })}
+                        {formatCardTimestamp(
+                          source.addedAt,
+                          selectedCard?.displayTimezone,
+                        )}
                       </span>
                     </div>
                     <div className="source-row__actions">

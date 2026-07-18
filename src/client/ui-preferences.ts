@@ -4,13 +4,26 @@ const themeStorageKey = 'fightfolio.theme.v1'
 const sidebarStorageKey = 'fightfolio.sidebar-collapsed.v1'
 const narrowViewStorageKey = 'fightfolio.narrow-view.v1'
 
-export function getInitialTheme(): Theme {
+function readPreference(key: string): string | null {
   try {
-    const storedTheme = window.localStorage.getItem(themeStorageKey)
-    if (storedTheme === 'light' || storedTheme === 'dark') return storedTheme
+    return window.localStorage.getItem(key)
   } catch {
     // Storage can be unavailable in hardened or private browser contexts.
+    return null
   }
+}
+
+function writePreference(key: string, value: string) {
+  try {
+    window.localStorage.setItem(key, value)
+  } catch {
+    // The preference still applies for the current page when storage is blocked.
+  }
+}
+
+export function getInitialTheme(): Theme {
+  const storedTheme = readPreference(themeStorageKey)
+  if (storedTheme === 'light' || storedTheme === 'dark') return storedTheme
 
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches
     ? 'dark'
@@ -26,41 +39,21 @@ export function applyTheme(theme: Theme) {
 }
 
 export function saveTheme(theme: Theme) {
-  try {
-    window.localStorage.setItem(themeStorageKey, theme)
-  } catch {
-    // The preference still applies for the current page when storage is blocked.
-  }
+  writePreference(themeStorageKey, theme)
 }
 
 export function getInitialSidebarCollapsed() {
-  try {
-    return window.localStorage.getItem(sidebarStorageKey) === 'true'
-  } catch {
-    return false
-  }
+  return readPreference(sidebarStorageKey) === 'true'
 }
 
 export function saveSidebarCollapsed(collapsed: boolean) {
-  try {
-    window.localStorage.setItem(sidebarStorageKey, String(collapsed))
-  } catch {
-    // The preference still applies for the current page when storage is blocked.
-  }
+  writePreference(sidebarStorageKey, String(collapsed))
 }
 
 export function getInitialNarrowView() {
-  try {
-    return window.localStorage.getItem(narrowViewStorageKey) === 'true'
-  } catch {
-    return false
-  }
+  return readPreference(narrowViewStorageKey) === 'true'
 }
 
 export function saveNarrowView(narrow: boolean) {
-  try {
-    window.localStorage.setItem(narrowViewStorageKey, String(narrow))
-  } catch {
-    // The preference still applies for the current page when storage is blocked.
-  }
+  writePreference(narrowViewStorageKey, String(narrow))
 }

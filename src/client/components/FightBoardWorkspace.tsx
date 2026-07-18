@@ -19,6 +19,7 @@ import {
   type FightOutcome,
   type Synthesis,
 } from '../api'
+import { formatCardTimestamp } from '../format'
 import { HelpTooltip } from './HelpTooltip'
 
 export function FightBoardWorkspace() {
@@ -201,9 +202,9 @@ export function FightBoardWorkspace() {
             <span>
               <CalendarDays size={14} />{' '}
               {selectedCard.eventStartsAtUtc
-                ? new Date(selectedCard.eventStartsAtUtc).toLocaleString(
-                    'en-AU',
-                    { timeZone: selectedCard.displayTimezone },
+                ? formatCardTimestamp(
+                    selectedCard.eventStartsAtUtc,
+                    selectedCard.displayTimezone,
                   )
                 : 'Date not set'}
             </span>

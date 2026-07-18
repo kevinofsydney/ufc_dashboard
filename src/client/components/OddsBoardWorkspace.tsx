@@ -11,9 +11,8 @@ import {
   type MarketPrice,
 } from '../api'
 import { synthesisConfig } from '../../shared/config/synthesis'
+import { formatCardTimestamp } from '../format'
 import { HelpTooltip } from './HelpTooltip'
-
-const oddsBoardLoadedAt = Date.now()
 
 export function OddsBoardWorkspace() {
   const [cards, setCards] = useState<Card[]>([])
@@ -25,6 +24,7 @@ export function OddsBoardWorkspace() {
   const [hidingPriceId, setHidingPriceId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [staleCheckedAt, setStaleCheckedAt] = useState(() => Date.now())
 
   useEffect(() => {
     getCards()
@@ -49,6 +49,7 @@ export function OddsBoardWorkspace() {
         setFights(nextFights)
         setPrices(nextPrices)
         setSelectedFightId(nextFights[0]?.id ?? '')
+        setStaleCheckedAt(Date.now())
       })
       .catch((requestError: unknown) =>
         setError(
@@ -59,6 +60,11 @@ export function OddsBoardWorkspace() {
       )
       .finally(() => setLoading(false))
   }, [selectedCardId])
+
+  const selectedCard = useMemo(
+    () => cards.find((card) => card.id === selectedCardId) ?? null,
+    [cards, selectedCardId],
+  )
 
   const selectedFight = useMemo(
     () => fights.find((fight) => fight.id === selectedFightId) ?? null,
@@ -279,7 +285,7 @@ export function OddsBoardWorkspace() {
             <div className="record-list">
               {prices.map((price) => {
                 const stale =
-                  oddsBoardLoadedAt - new Date(price.capturedAt).getTime() >
+                  staleCheckedAt - new Date(price.capturedAt).getTime() >
                   synthesisConfig.priceStaleHours * 60 * 60 * 1000
                 return (
                   <article
@@ -302,9 +308,10 @@ export function OddsBoardWorkspace() {
                       <strong>{Number(price.decimalOdds).toFixed(2)}</strong>
                       <span>{price.bookmaker ?? 'Bookmaker not recorded'}</span>
                       <small>
-                        {new Date(price.capturedAt).toLocaleString('en-AU', {
-                          timeZone: 'Australia/Sydney',
-                        })}
+                        {formatCardTimestamp(
+                          price.capturedAt,
+                          selectedCard?.displayTimezone,
+                        )}
                       </small>
                       <button
                         className="text-button"
