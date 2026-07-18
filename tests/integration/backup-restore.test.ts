@@ -1,7 +1,6 @@
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Miniflare } from 'miniflare'
+import { applyMigrations } from '../helpers/migrations'
 import {
   exportApplicationBackup,
   restoreApplicationBackup,
@@ -13,20 +12,6 @@ import {
   getApplicationSettings,
   updateApplicationSettings,
 } from '../../src/server/repositories/settings'
-
-const migrationFiles = [
-  '0001_initial.sql',
-  '0002_seed_cappers.sql',
-  '0003_extraction_and_markets.sql',
-  '0004_synthesis_ledger_and_outcomes.sql',
-  '0005_active_extraction.sql',
-  '0006_reviewed_extraction.sql',
-  '0007_synthesis_evidence.sql',
-  '0008_soft_delete_prices.sql',
-  '0009_application_settings.sql',
-  '0010_soft_delete_cards.sql',
-  '0011_openrouter_preferences.sql',
-]
 
 describe('D1 backup restore rehearsal', () => {
   let runtime: Miniflare
@@ -43,17 +28,7 @@ describe('D1 backup restore rehearsal', () => {
     })
     source = await runtime.getD1Database('SOURCE')
     target = await runtime.getD1Database('TARGET')
-    for (const filename of migrationFiles) {
-      const sql = (await readFile(resolve('migrations', filename), 'utf8'))
-        .replace(/^PRAGMA foreign_keys = ON;\s*/u, '')
-        .split(';')
-        .map((statement) => statement.replace(/\s+/gu, ' ').trim())
-        .filter(Boolean)
-        .map((statement) => `${statement};`)
-        .join('\n')
-      await source.exec(sql)
-      await target.exec(sql)
-    }
+    await applyMigrations([source, target])
   })
 
   afterAll(async () => runtime.dispose())

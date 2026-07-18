@@ -15,6 +15,8 @@ export const reasoningEffortSchema = z.enum(reasoningEffortValues)
 
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>
 
+// Migrations 0009 and 0011 seed this same list as literal JSON; those files
+// are frozen history — this constant is the runtime source of truth.
 export const defaultSavedOpenRouterModels = [
   'deepseek/deepseek-v4-flash',
   'deepseek/deepseek-v4-pro',

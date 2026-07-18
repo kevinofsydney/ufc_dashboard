@@ -15,6 +15,8 @@ const backupTables = [
   'fight_opinions',
   'capper_tips',
   'fight_stats',
+  // extraction_review_items is unused by the application but stays listed for
+  // backup/restore compatibility with existing databases.
   'extraction_review_items',
   'market_prices',
   'synthesis_runs',

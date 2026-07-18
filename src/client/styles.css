@@ -423,12 +423,6 @@ summary:focus-visible {
   transform: translate(0, 4px);
 }
 
-.help-tooltip--right .help-tooltip__content {
-  right: 0;
-  left: auto;
-  transform: translate(0, 4px);
-}
-
 .help-tooltip:hover .help-tooltip__content,
 .help-tooltip:focus-within .help-tooltip__content {
   opacity: 1;
@@ -437,9 +431,7 @@ summary:focus-visible {
 }
 
 .help-tooltip--left:hover .help-tooltip__content,
-.help-tooltip--left:focus-within .help-tooltip__content,
-.help-tooltip--right:hover .help-tooltip__content,
-.help-tooltip--right:focus-within .help-tooltip__content {
+.help-tooltip--left:focus-within .help-tooltip__content {
   transform: translate(0, 0);
 }
 

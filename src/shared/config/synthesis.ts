@@ -20,7 +20,6 @@ export const synthesisConfig = {
   },
   perBetCapUnits: 4,
   parlay: {
-    maximumPerCard: 1,
     maximumLegs: 3,
     stakeUnits: 1,
   },

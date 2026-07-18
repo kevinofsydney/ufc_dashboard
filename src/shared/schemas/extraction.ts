@@ -111,12 +111,6 @@ export type StatsTrackerExtraction = z.infer<
   typeof statsTrackerExtractionSchema
 >
 
-export const extractionReviewInputSchema = z.object({
-  opinions: z.array(extractedOpinionSchema).max(100),
-  tips: z.array(extractedTipSchema).max(100),
-  unmatched: individualExtractionSchema.shape.unmatched,
-})
-
 export function stripMarkdownFences(value: string): string {
   const trimmed = value.trim()
   const match = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)

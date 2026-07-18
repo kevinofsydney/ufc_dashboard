@@ -4,7 +4,7 @@ import { useId } from 'react'
 interface HelpTooltipProps {
   label: string
   text: string
-  align?: 'center' | 'left' | 'right'
+  align?: 'center' | 'left'
 }
 
 export function HelpTooltip({
