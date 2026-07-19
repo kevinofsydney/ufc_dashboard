@@ -1,5 +1,5 @@
 import type { Bindings } from '../env'
-import { auditEvent } from './audit'
+import { auditEventWhenPreviousStatementChanged } from './audit'
 import type { FightEvidence } from '../services/synthesise-card'
 
 function parseEvidence(value: string): FightEvidence {
@@ -181,12 +181,10 @@ export async function acceptSynthesis(
   actorEmail: string,
 ): Promise<void> {
   const run = await db
-    .prepare(`SELECT id, card_id, status FROM synthesis_runs WHERE id = ?`)
+    .prepare(`SELECT id, card_id FROM synthesis_runs WHERE id = ?`)
     .bind(synthesisRunId)
-    .first<{ id: string; card_id: string; status: string }>()
+    .first<{ id: string; card_id: string }>()
   if (!run) throw new Error('Synthesis run not found')
-  if (run.status !== 'draft')
-    throw new Error('Only a draft synthesis can be accepted')
 
   const now = new Date().toISOString()
   // Both statements re-check that the run is still a draft so a concurrent
@@ -209,7 +207,7 @@ export async function acceptSynthesis(
          WHERE id = ? AND status = 'draft'`,
       )
       .bind(now, run.id),
-    auditEvent(db, {
+    auditEventWhenPreviousStatementChanged(db, {
       entityType: 'synthesis_run',
       entityId: run.id,
       action: 'accepted',

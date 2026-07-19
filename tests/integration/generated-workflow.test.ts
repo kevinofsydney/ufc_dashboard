@@ -199,6 +199,15 @@ describe('generated research workflow', () => {
     await expect(
       acceptSynthesis(db, draft.id, 'reviewer@example.com'),
     ).rejects.toThrow('Only a draft synthesis can be accepted')
+    const acceptanceAudit = await db
+      .prepare(
+        `SELECT COUNT(*) AS count FROM audit_events
+         WHERE entity_type = 'synthesis_run' AND entity_id = ?
+           AND action = 'accepted'`,
+      )
+      .bind(draft.id)
+      .first<{ count: number }>()
+    expect(acceptanceAudit?.count).toBe(1)
     const acceptedDraft = await getCurrentSynthesis(db, card.id)
     expect(acceptedDraft).toMatchObject({
       id: draft.id,
