@@ -2494,7 +2494,7 @@ html[data-theme='dark'] select option {
 }
 
 .fight-board-card__matchup span {
-  color: #a0a39b;
+  color: var(--muted);
   font-family: Georgia, serif;
   font-size: 10px;
   font-style: italic;
