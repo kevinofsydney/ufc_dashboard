@@ -154,18 +154,11 @@ function plurality<T extends string>(
       rightCount - leftCount || leftValue.localeCompare(rightValue),
   )
   if (ordered.length === 0) return { value: null, support: 0, eligible: 0 }
-  if (ordered[0]?.[1] === ordered[1]?.[1]) {
-    return {
-      value: null,
-      support: ordered[0]?.[1] ?? 0,
-      eligible: specified.length,
-    }
+  const [topValue, topCount] = ordered[0]
+  if (topCount === ordered[1]?.[1]) {
+    return { value: null, support: topCount, eligible: specified.length }
   }
-  return {
-    value: ordered[0]?.[0] ?? null,
-    support: ordered[0]?.[1] ?? 0,
-    eligible: specified.length,
-  }
+  return { value: topValue, support: topCount, eligible: specified.length }
 }
 
 function parseJson<T>(value: string | null): T | null {

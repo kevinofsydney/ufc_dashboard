@@ -223,233 +223,221 @@ export function FightBoardWorkspace() {
           </div>
         ) : (
           <div className="fight-list">
-            {fights.map((fight, index) =>
-              (() => {
-                const outcome = outcomes.find(
-                  (item) => item.fightId === fight.id,
-                )
-                const outcomeResult =
-                  outcome?.status === 'winner' && outcome.winnerFighterId
-                    ? `winner:${outcome.winnerFighterId}`
-                    : (outcome?.status ?? 'pending')
-                const summary = synthesis?.fightSummaries.find(
-                  (item) => item.fightId === fight.id,
-                )
-                const pickedFighter = [fight.fighterA, fight.fighterB].find(
-                  (fighter) => fighter.id === summary?.consensusFighterId,
-                )
-                const isAwaitingConsensus = !summary || !pickedFighter
-                return (
-                  <article
-                    className={`fight-board-card ${isAwaitingConsensus ? 'fight-board-card--awaiting' : ''} ${fight.status !== 'scheduled' ? 'fight-board-card--muted' : ''}`}
-                    key={fight.id}
-                  >
-                    <div className="fight-board-card__identity">
-                      <div className="fight-board-card__order">
-                        <span>
-                          {fight.isMainEvent
-                            ? 'Main event'
-                            : `Bout ${fight.boutOrder ?? index + 1}`}
-                        </span>
-                        <small>
-                          {fight.weightClass ?? 'Weight class not recorded'}
-                        </small>
-                      </div>
-                      <div className="fight-board-card__matchup">
-                        <strong>{fight.fighterA.name}</strong>
-                        <span>vs</span>
-                        <strong>{fight.fighterB.name}</strong>
-                      </div>
+            {fights.map((fight, index) => {
+              const outcome = outcomes.find((item) => item.fightId === fight.id)
+              const outcomeResult =
+                outcome?.status === 'winner' && outcome.winnerFighterId
+                  ? `winner:${outcome.winnerFighterId}`
+                  : (outcome?.status ?? 'pending')
+              const summary = synthesis?.fightSummaries.find(
+                (item) => item.fightId === fight.id,
+              )
+              const pickedFighter = [fight.fighterA, fight.fighterB].find(
+                (fighter) => fighter.id === summary?.consensusFighterId,
+              )
+              const isAwaitingConsensus = !summary || !pickedFighter
+              return (
+                <article
+                  className={`fight-board-card ${isAwaitingConsensus ? 'fight-board-card--awaiting' : ''} ${fight.status !== 'scheduled' ? 'fight-board-card--muted' : ''}`}
+                  key={fight.id}
+                >
+                  <div className="fight-board-card__identity">
+                    <div className="fight-board-card__order">
+                      <span>
+                        {fight.isMainEvent
+                          ? 'Main event'
+                          : `Bout ${fight.boutOrder ?? index + 1}`}
+                      </span>
+                      <small>
+                        {fight.weightClass ?? 'Weight class not recorded'}
+                      </small>
                     </div>
-                    <div className="fight-board-card__analysis">
-                      {isAwaitingConsensus ? (
-                        <p className="fight-board-card__status">
-                          {fight.status === 'scheduled'
-                            ? 'No accepted source opinions yet'
-                            : fight.status}
-                        </p>
-                      ) : (
-                        <div className="consensus-result">
-                          <div className="consensus-result__pick">
-                            <span>Pick</span>
-                            <strong>{pickedFighter.name}</strong>
+                    <div className="fight-board-card__matchup">
+                      <strong>{fight.fighterA.name}</strong>
+                      <span>vs</span>
+                      <strong>{fight.fighterB.name}</strong>
+                    </div>
+                  </div>
+                  <div className="fight-board-card__analysis">
+                    {isAwaitingConsensus ? (
+                      <p className="fight-board-card__status">
+                        {fight.status === 'scheduled'
+                          ? 'No accepted source opinions yet'
+                          : fight.status}
+                      </p>
+                    ) : (
+                      <div className="consensus-result">
+                        <div className="consensus-result__pick">
+                          <span>Pick</span>
+                          <strong>{pickedFighter.name}</strong>
+                          <small>
+                            {summary.rawSupportCount}/
+                            {summary.eligibleVoterCount} cappers ·{' '}
+                            {Math.round((summary.weightedShare ?? 0) * 100)}%
+                            weighted
+                          </small>
+                        </div>
+                        {summary.badges.length > 0 && (
+                          <div className="consensus-badges">
+                            {summary.badges.map((badge) => (
+                              <span key={badge}>
+                                {badge.replaceAll('_', ' ')}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {summary.evidence.missingCurrentMoneylinePrice && (
+                          <p className="form-message form-message--warning">
+                            Consensus found, but its current moneyline price is
+                            missing from the Odds Board.
+                          </p>
+                        )}
+                        <div className="consensus-detail-grid">
+                          <div>
+                            <span>Method</span>
+                            <strong>
+                              {summary.consensusMethod
+                                ? summary.consensusMethod.replace('_', '/')
+                                : 'No consensus'}
+                            </strong>
                             <small>
-                              {summary.rawSupportCount}/
-                              {summary.eligibleVoterCount} cappers ·{' '}
-                              {Math.round((summary.weightedShare ?? 0) * 100)}%
-                              weighted
+                              {summary.methodSupportCount}/
+                              {summary.methodEligibleCount || 0} eligible
                             </small>
                           </div>
-                          {summary.badges.length > 0 && (
-                            <div className="consensus-badges">
-                              {summary.badges.map((badge) => (
-                                <span key={badge}>
-                                  {badge.replaceAll('_', ' ')}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                          {summary.evidence.missingCurrentMoneylinePrice && (
-                            <p className="form-message form-message--warning">
-                              Consensus found, but its current moneyline price
-                              is missing from the Odds Board.
-                            </p>
-                          )}
-                          <div className="consensus-detail-grid">
-                            <div>
-                              <span>Method</span>
-                              <strong>
-                                {summary.consensusMethod
-                                  ? summary.consensusMethod.replace('_', '/')
-                                  : 'No consensus'}
-                              </strong>
-                              <small>
-                                {summary.methodSupportCount}/
-                                {summary.methodEligibleCount || 0} eligible
-                              </small>
-                            </div>
-                            <div>
-                              <span>Round</span>
-                              <strong>
-                                {summary.consensusRound ?? 'Few/no calls'}
-                              </strong>
-                              <small>
-                                {summary.roundSupportCount}/
-                                {summary.roundEligibleCount || 0} eligible
-                              </small>
-                            </div>
+                          <div>
+                            <span>Round</span>
+                            <strong>
+                              {summary.consensusRound ?? 'Few/no calls'}
+                            </strong>
+                            <small>
+                              {summary.roundSupportCount}/
+                              {summary.roundEligibleCount || 0} eligible
+                            </small>
                           </div>
-                          {summary.evidence.tracker && (
-                            <div className="tracker-evidence">
-                              <strong>Tracker evidence</strong>
-                              {summary.evidence.tracker.allChannels && (
-                                <span>
-                                  All channels — {fight.fighterA.name}:{' '}
-                                  {summary.evidence.tracker.allChannels
-                                    .fighter_a_count ?? '—'}{' '}
-                                  · {fight.fighterB.name}:{' '}
-                                  {summary.evidence.tracker.allChannels
-                                    .fighter_b_count ?? '—'}{' '}
-                                  · total{' '}
-                                  {summary.evidence.tracker.allChannels.total ??
-                                    'not stated'}
-                                </span>
-                              )}
-                              {summary.evidence.tracker.bestOverall && (
-                                <span>
-                                  Best predictors — {fight.fighterA.name}:{' '}
-                                  {summary.evidence.tracker.bestOverall
-                                    .fighter_a_count ?? '—'}{' '}
-                                  · {fight.fighterB.name}:{' '}
-                                  {summary.evidence.tracker.bestOverall
-                                    .fighter_b_count ?? '—'}{' '}
-                                  · total{' '}
-                                  {summary.evidence.tracker.bestOverall.total ??
-                                    'not stated'}
-                                </span>
-                              )}
-                              {summary.evidence.tracker.bookmakerNote && (
-                                <small>
-                                  {summary.evidence.tracker.bookmakerNote}
-                                </small>
-                              )}
-                            </div>
-                          )}
-                          <p className="consensus-overview">
-                            <strong>Why:</strong> {summary.overviewText}
-                          </p>
-                          {(summary.evidence.dissenters.length > 0 ||
-                            summary.evidence.supporters.length > 0) && (
-                            <details className="consensus-sources">
-                              <summary>
-                                Supporting and dissenting evidence
-                              </summary>
-                              {summary.evidence.supporters.map((supporter) => (
-                                <p key={`support-${supporter.capperId}`}>
-                                  <strong>{supporter.capperName}</strong>{' '}
-                                  supports ({supporter.confidence}) —{' '}
-                                  {supporter.reasoning}
-                                </p>
-                              ))}
-                              {summary.evidence.dissenters.map((dissenter) => (
-                                <p key={`dissent-${dissenter.capperId}`}>
-                                  <strong>{dissenter.capperName}</strong>{' '}
-                                  dissents ({dissenter.confidence}) —{' '}
-                                  {dissenter.reasoning}
-                                </p>
-                              ))}
-                            </details>
-                          )}
                         </div>
-                      )}
-                    </div>
-                    <form
-                      className="fight-outcome-form"
-                      key={`${fight.id}:${outcome?.updatedAt ?? 'new'}`}
-                      onSubmit={(event) => void handleOutcome(event, fight)}
-                    >
-                      <label>
-                        <span>Official result</span>
-                        <select
-                          name="outcomeResult"
-                          defaultValue={outcomeResult}
-                        >
-                          <option value="pending">Pending</option>
-                          <option value={`winner:${fight.fighterA.id}`}>
-                            {fight.fighterA.name} won
-                          </option>
-                          <option value={`winner:${fight.fighterB.id}`}>
-                            {fight.fighterB.name} won
-                          </option>
-                          <option value="draw">Draw</option>
-                          <option value="no_contest">No contest</option>
-                          <option value="overturned">Overturned</option>
-                          <option value="cancelled">Cancelled</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>Method</span>
-                        <select
-                          name="method"
-                          defaultValue={outcome?.method ?? ''}
-                        >
-                          <option value="">Not recorded</option>
-                          <option value="ko_tko">KO / TKO</option>
-                          <option value="submission">Submission</option>
-                          <option value="decision">Decision</option>
-                          <option value="disqualification">
-                            Disqualification
-                          </option>
-                          <option value="other">Other</option>
-                        </select>
-                      </label>
-                      <label>
-                        <span>Round</span>
-                        <select
-                          name="round"
-                          defaultValue={outcome?.round ?? ''}
-                        >
-                          <option value="">Not recorded</option>
-                          {[1, 2, 3, 4, 5].map((round) => (
-                            <option key={round} value={round}>
-                              {round}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button
-                        className="button button--secondary button--compact"
-                        disabled={savingOutcomeFightId === fight.id}
+                        {summary.evidence.tracker && (
+                          <div className="tracker-evidence">
+                            <strong>Tracker evidence</strong>
+                            {summary.evidence.tracker.allChannels && (
+                              <span>
+                                All channels — {fight.fighterA.name}:{' '}
+                                {summary.evidence.tracker.allChannels
+                                  .fighter_a_count ?? '—'}{' '}
+                                · {fight.fighterB.name}:{' '}
+                                {summary.evidence.tracker.allChannels
+                                  .fighter_b_count ?? '—'}{' '}
+                                · total{' '}
+                                {summary.evidence.tracker.allChannels.total ??
+                                  'not stated'}
+                              </span>
+                            )}
+                            {summary.evidence.tracker.bestOverall && (
+                              <span>
+                                Best predictors — {fight.fighterA.name}:{' '}
+                                {summary.evidence.tracker.bestOverall
+                                  .fighter_a_count ?? '—'}{' '}
+                                · {fight.fighterB.name}:{' '}
+                                {summary.evidence.tracker.bestOverall
+                                  .fighter_b_count ?? '—'}{' '}
+                                · total{' '}
+                                {summary.evidence.tracker.bestOverall.total ??
+                                  'not stated'}
+                              </span>
+                            )}
+                            {summary.evidence.tracker.bookmakerNote && (
+                              <small>
+                                {summary.evidence.tracker.bookmakerNote}
+                              </small>
+                            )}
+                          </div>
+                        )}
+                        <p className="consensus-overview">
+                          <strong>Why:</strong> {summary.overviewText}
+                        </p>
+                        {(summary.evidence.dissenters.length > 0 ||
+                          summary.evidence.supporters.length > 0) && (
+                          <details className="consensus-sources">
+                            <summary>
+                              Supporting and dissenting evidence
+                            </summary>
+                            {summary.evidence.supporters.map((supporter) => (
+                              <p key={`support-${supporter.capperId}`}>
+                                <strong>{supporter.capperName}</strong> supports
+                                ({supporter.confidence}) — {supporter.reasoning}
+                              </p>
+                            ))}
+                            {summary.evidence.dissenters.map((dissenter) => (
+                              <p key={`dissent-${dissenter.capperId}`}>
+                                <strong>{dissenter.capperName}</strong> dissents
+                                ({dissenter.confidence}) — {dissenter.reasoning}
+                              </p>
+                            ))}
+                          </details>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <form
+                    className="fight-outcome-form"
+                    key={`${fight.id}:${outcome?.updatedAt ?? 'new'}`}
+                    onSubmit={(event) => void handleOutcome(event, fight)}
+                  >
+                    <label>
+                      <span>Official result</span>
+                      <select name="outcomeResult" defaultValue={outcomeResult}>
+                        <option value="pending">Pending</option>
+                        <option value={`winner:${fight.fighterA.id}`}>
+                          {fight.fighterA.name} won
+                        </option>
+                        <option value={`winner:${fight.fighterB.id}`}>
+                          {fight.fighterB.name} won
+                        </option>
+                        <option value="draw">Draw</option>
+                        <option value="no_contest">No contest</option>
+                        <option value="overturned">Overturned</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Method</span>
+                      <select
+                        name="method"
+                        defaultValue={outcome?.method ?? ''}
                       >
-                        {savingOutcomeFightId === fight.id
-                          ? 'Saving'
-                          : 'Save result'}
-                      </button>
-                    </form>
-                  </article>
-                )
-              })(),
-            )}
+                        <option value="">Not recorded</option>
+                        <option value="ko_tko">KO / TKO</option>
+                        <option value="submission">Submission</option>
+                        <option value="decision">Decision</option>
+                        <option value="disqualification">
+                          Disqualification
+                        </option>
+                        <option value="other">Other</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span>Round</span>
+                      <select name="round" defaultValue={outcome?.round ?? ''}>
+                        <option value="">Not recorded</option>
+                        {[1, 2, 3, 4, 5].map((round) => (
+                          <option key={round} value={round}>
+                            {round}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="button button--secondary button--compact"
+                      disabled={savingOutcomeFightId === fight.id}
+                    >
+                      {savingOutcomeFightId === fight.id
+                        ? 'Saving'
+                        : 'Save result'}
+                    </button>
+                  </form>
+                </article>
+              )
+            })}
           </div>
         )}
       </div>

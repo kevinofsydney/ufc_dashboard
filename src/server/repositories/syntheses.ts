@@ -189,17 +189,24 @@ export async function acceptSynthesis(
     throw new Error('Only a draft synthesis can be accepted')
 
   const now = new Date().toISOString()
-  await db.batch([
+  // Both statements re-check that the run is still a draft so a concurrent
+  // accept cannot double-apply or supersede the winner without replacing it.
+  const results = await db.batch([
     db
       .prepare(
         `UPDATE synthesis_runs
          SET status = 'superseded', updated_at = ?
-         WHERE card_id = ? AND status = 'accepted' AND id <> ?`,
+         WHERE card_id = ? AND status = 'accepted' AND id <> ?
+           AND EXISTS (
+             SELECT 1 FROM synthesis_runs WHERE id = ? AND status = 'draft'
+           )`,
       )
-      .bind(now, run.card_id, run.id),
+      .bind(now, run.card_id, run.id, run.id),
     db
       .prepare(
-        `UPDATE synthesis_runs SET status = 'accepted', updated_at = ? WHERE id = ?`,
+        `UPDATE synthesis_runs
+         SET status = 'accepted', updated_at = ?
+         WHERE id = ? AND status = 'draft'`,
       )
       .bind(now, run.id),
     auditEvent(db, {
@@ -210,4 +217,7 @@ export async function acceptSynthesis(
       now,
     }),
   ])
+  if (results[1]?.meta.changes !== 1) {
+    throw new Error('Only a draft synthesis can be accepted')
+  }
 }

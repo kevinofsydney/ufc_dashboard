@@ -548,7 +548,6 @@ textarea:focus-visible,
   background: var(--lime);
 }
 
-.workspace-grid,
 .source-layout {
   display: grid;
   grid-template-columns: minmax(320px, 0.78fr) minmax(0, 1.22fr);
@@ -2501,14 +2500,6 @@ html[data-theme='dark'] select option {
   font-style: italic;
 }
 
-.bout-workspace {
-  padding: 24px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface-translucent);
-  box-shadow: 0 14px 40px var(--shadow);
-}
-
 .collapsible-workspace__summary {
   display: flex;
   align-items: center;
@@ -2862,8 +2853,7 @@ html[data-theme='dark'] textarea::placeholder {
   font-size: 48px;
 }
 
-.app-shell--narrow-view
-  :is(.workflow-overview, .workspace-grid, .source-layout, .bout-layout) {
+.app-shell--narrow-view :is(.workflow-overview, .source-layout, .bout-layout) {
   grid-template-columns: 1fr;
 }
 
@@ -3011,7 +3001,6 @@ html[data-theme='dark'] textarea::placeholder {
     grid-template-columns: 1fr;
   }
 
-  .workspace-grid,
   .source-layout {
     grid-template-columns: 1fr;
   }
@@ -3139,8 +3128,7 @@ html[data-theme='dark'] textarea::placeholder {
   .editor-card,
   .records-card,
   .live-fight-board,
-  .draft-slate,
-  .bout-workspace {
+  .draft-slate {
     padding: 18px;
   }
 
@@ -3521,7 +3509,6 @@ html[data-theme='dark'] textarea::placeholder {
 
 /* Every workspace follows one vertical reading order. Compact controls and
    tabular record rows can still use internal columns where that improves use. */
-.workspace-grid,
 .source-layout,
 .workflow-overview,
 .workflow-steps,
@@ -3813,7 +3800,6 @@ html[data-theme='dark'] textarea::placeholder {
 .review-card,
 .live-fight-board,
 .draft-slate,
-.bout-workspace,
 .fetch-card-panel,
 .alias-workspace,
 .metric-card {
@@ -3829,7 +3815,6 @@ html[data-theme='dark'] textarea::placeholder {
 .review-card,
 .live-fight-board,
 .draft-slate,
-.bout-workspace,
 .fetch-card-panel,
 .alias-workspace,
 .metric-card {
@@ -3840,7 +3825,6 @@ html[data-theme='dark'] textarea::placeholder {
   gap: 34px;
 }
 
-.workspace-grid,
 .source-layout {
   gap: 48px;
 }
@@ -3854,7 +3838,6 @@ html[data-theme='dark'] textarea::placeholder {
 .records-card,
 .live-fight-board,
 .draft-slate,
-.bout-workspace,
 .fetch-card-panel,
 .alias-workspace,
 .review-card {
@@ -3863,7 +3846,6 @@ html[data-theme='dark'] textarea::placeholder {
 
 .workspace-stack > .records-card,
 .workspace-stack > .draft-slate,
-.workspace-stack > .bout-workspace,
 .workspace-stack > .review-card {
   padding-top: 30px;
   border-top: 1px solid var(--line);
@@ -4189,7 +4171,6 @@ select,
 }
 
 @media (max-width: 900px) {
-  .workspace-grid,
   .source-layout {
     gap: 34px;
   }
@@ -4218,7 +4199,6 @@ select,
   .records-card,
   .live-fight-board,
   .draft-slate,
-  .bout-workspace,
   .workflow-overview,
   .workflow-step {
     padding-right: 0;

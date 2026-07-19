@@ -196,6 +196,9 @@ describe('generated research workflow', () => {
     ])
 
     await acceptSynthesis(db, draft.id, 'reviewer@example.com')
+    await expect(
+      acceptSynthesis(db, draft.id, 'reviewer@example.com'),
+    ).rejects.toThrow('Only a draft synthesis can be accepted')
     const acceptedDraft = await getCurrentSynthesis(db, card.id)
     expect(acceptedDraft).toMatchObject({
       id: draft.id,
