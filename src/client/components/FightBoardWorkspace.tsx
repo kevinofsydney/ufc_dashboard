@@ -148,6 +148,7 @@ export function FightBoardWorkspace() {
           cards={cards}
           value={selectedCardId}
           onChange={(cardId) => {
+            if (cardId === selectedCardId) return
             setLoading(true)
             setFights([])
             setOutcomes([])

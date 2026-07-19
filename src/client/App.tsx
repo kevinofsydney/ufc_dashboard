@@ -135,160 +135,165 @@ function App() {
   const activePurpose = activeNavItem?.purpose ?? ''
 
   return (
-    <div
-      className={`app-shell ${sidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''} ${narrowView ? 'app-shell--narrow-view' : ''}`}
-    >
-      <aside
-        id="application-sidebar"
-        className={`sidebar ${sidebarCollapsed ? 'sidebar--collapsed' : ''} ${mobileNavOpen ? 'sidebar--open' : ''}`}
+    <>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
+      <div
+        className={`app-shell ${sidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''} ${narrowView ? 'app-shell--narrow-view' : ''}`}
       >
-        <div className="brand-block">
-          <div className="brand-mark" aria-hidden="true">
-            <span>U</span>
+        <aside
+          id="application-sidebar"
+          className={`sidebar ${sidebarCollapsed ? 'sidebar--collapsed' : ''} ${mobileNavOpen ? 'sidebar--open' : ''}`}
+        >
+          <div className="brand-block">
+            <div className="brand-mark" aria-hidden="true">
+              <span>U</span>
+            </div>
+            <div className="brand-copy">
+              <p className="brand-name">Fightfolio</p>
+              <p className="brand-kicker">Bet synthesiser</p>
+            </div>
+            <button
+              className="sidebar-collapse-button"
+              type="button"
+              aria-label={
+                sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
+              }
+              aria-controls="application-sidebar"
+              aria-expanded={!sidebarCollapsed}
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse to icons'}
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              {sidebarCollapsed ? (
+                <PanelLeftOpen size={18} />
+              ) : (
+                <PanelLeftClose size={18} />
+              )}
+            </button>
+            <button
+              className="icon-button sidebar-close"
+              type="button"
+              aria-label="Close navigation"
+              onClick={() => setMobileNavOpen(false)}
+            >
+              <X size={20} />
+            </button>
           </div>
-          <div className="brand-copy">
-            <p className="brand-name">Fightfolio</p>
-            <p className="brand-kicker">Bet synthesiser</p>
-          </div>
+
+          <nav className="primary-nav" aria-label="Primary navigation">
+            <p className="nav-label">Workspace</p>
+            {navItems.map(({ label, icon: Icon, purpose }) => (
+              <button
+                key={label}
+                type="button"
+                className={`nav-button ${activeNav === label ? 'nav-button--active' : ''}`}
+                onClick={() => handleNav(label)}
+                aria-label={label}
+                title={sidebarCollapsed ? `${label} — ${purpose}` : undefined}
+              >
+                <Icon size={18} strokeWidth={1.8} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+
+          <div className="sidebar-spacer" />
+
           <button
-            className="sidebar-collapse-button"
+            className="nav-button theme-button"
             type="button"
-            aria-label={
-              sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'
+            onClick={() =>
+              setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
             }
-            aria-controls="application-sidebar"
-            aria-expanded={!sidebarCollapsed}
-            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse to icons'}
-            onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-pressed={theme === 'dark'}
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
           >
-            {sidebarCollapsed ? (
-              <PanelLeftOpen size={18} />
-            ) : (
-              <PanelLeftClose size={18} />
-            )}
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+            <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
           </button>
+
           <button
-            className="icon-button sidebar-close"
+            className="nav-button layout-button"
+            type="button"
+            onClick={() => setNarrowView((current) => !current)}
+            aria-label={
+              narrowView ? 'Use desktop layout' : 'Use mobile-width layout'
+            }
+            aria-pressed={narrowView}
+            title={
+              narrowView
+                ? 'Return to the full-width desktop layout'
+                : 'Preview the single-column mobile layout on this screen'
+            }
+          >
+            {narrowView ? <Monitor size={18} /> : <Smartphone size={18} />}
+            <span>{narrowView ? 'Desktop layout' : 'Mobile layout'}</span>
+          </button>
+
+          <button
+            className={`nav-button settings-button ${activeNav === 'Settings' ? 'nav-button--active' : ''}`}
+            type="button"
+            onClick={() => handleNav('Settings')}
+            aria-label="Settings"
+            title={sidebarCollapsed ? settingsNavItem.purpose : undefined}
+          >
+            <Settings size={18} />
+            <span>Settings</span>
+          </button>
+        </aside>
+
+        {mobileNavOpen && (
+          <button
+            className="sidebar-scrim"
             type="button"
             aria-label="Close navigation"
             onClick={() => setMobileNavOpen(false)}
-          >
-            <X size={20} />
-          </button>
-        </div>
+          />
+        )}
 
-        <nav className="primary-nav" aria-label="Primary navigation">
-          <p className="nav-label">Workspace</p>
-          {navItems.map(({ label, icon: Icon, purpose }) => (
+        <main className="main-panel" id="main-content" tabIndex={-1}>
+          <header className="topbar">
             <button
-              key={label}
+              className="icon-button mobile-menu"
               type="button"
-              className={`nav-button ${activeNav === label ? 'nav-button--active' : ''}`}
-              onClick={() => handleNav(label)}
-              aria-label={label}
-              title={sidebarCollapsed ? `${label} — ${purpose}` : undefined}
+              aria-label="Open navigation"
+              aria-controls="application-sidebar"
+              aria-expanded={mobileNavOpen}
+              onClick={() => setMobileNavOpen(true)}
             >
-              <Icon size={18} strokeWidth={1.8} />
-              <span>{label}</span>
+              <Menu size={21} />
             </button>
-          ))}
-        </nav>
+          </header>
 
-        <div className="sidebar-spacer" />
+          <div className="page-content">
+            <section className="page-heading">
+              <h1>{activeNav}</h1>
+              <p>{activePurpose}</p>
+            </section>
 
-        <button
-          className="nav-button theme-button"
-          type="button"
-          onClick={() =>
-            setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
-          }
-          aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-          aria-pressed={theme === 'dark'}
-          title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-        >
-          {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-          <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
-        </button>
-
-        <button
-          className="nav-button layout-button"
-          type="button"
-          onClick={() => setNarrowView((current) => !current)}
-          aria-label={
-            narrowView ? 'Use desktop layout' : 'Use mobile-width layout'
-          }
-          aria-pressed={narrowView}
-          title={
-            narrowView
-              ? 'Return to the full-width desktop layout'
-              : 'Preview the single-column mobile layout on this screen'
-          }
-        >
-          {narrowView ? <Monitor size={18} /> : <Smartphone size={18} />}
-          <span>{narrowView ? 'Desktop layout' : 'Mobile layout'}</span>
-        </button>
-
-        <button
-          className={`nav-button settings-button ${activeNav === 'Settings' ? 'nav-button--active' : ''}`}
-          type="button"
-          onClick={() => handleNav('Settings')}
-          aria-label="Settings"
-          title={sidebarCollapsed ? settingsNavItem.purpose : undefined}
-        >
-          <Settings size={18} />
-          <span>Settings</span>
-        </button>
-      </aside>
-
-      {mobileNavOpen && (
-        <button
-          className="sidebar-scrim"
-          type="button"
-          aria-label="Close navigation"
-          onClick={() => setMobileNavOpen(false)}
-        />
-      )}
-
-      <main className="main-panel">
-        <header className="topbar">
-          <button
-            className="icon-button mobile-menu"
-            type="button"
-            aria-label="Open navigation"
-            aria-controls="application-sidebar"
-            aria-expanded={mobileNavOpen}
-            onClick={() => setMobileNavOpen(true)}
-          >
-            <Menu size={21} />
-          </button>
-        </header>
-
-        <div className="page-content">
-          <section className="page-heading">
-            <h1>{activeNav}</h1>
-            <p>{activePurpose}</p>
-          </section>
-
-          {activeNav === 'How to' ? (
-            <HowToWorkspace onNavigate={handleNav} />
-          ) : activeNav === 'Cards' ? (
-            <CardWorkspace />
-          ) : activeNav === 'Sources' ? (
-            <SourcesWorkspace />
-          ) : activeNav === 'Odds board' ? (
-            <OddsBoardWorkspace />
-          ) : activeNav === 'Fight board' ? (
-            <FightBoardWorkspace />
-          ) : activeNav === 'Bet ledger' ? (
-            <LedgerWorkspace />
-          ) : activeNav === 'Bankroll' ? (
-            <BankrollWorkspace />
-          ) : (
-            <SettingsWorkspace />
-          )}
-        </div>
-      </main>
-    </div>
+            {activeNav === 'How to' ? (
+              <HowToWorkspace onNavigate={handleNav} />
+            ) : activeNav === 'Cards' ? (
+              <CardWorkspace />
+            ) : activeNav === 'Sources' ? (
+              <SourcesWorkspace />
+            ) : activeNav === 'Odds board' ? (
+              <OddsBoardWorkspace />
+            ) : activeNav === 'Fight board' ? (
+              <FightBoardWorkspace />
+            ) : activeNav === 'Bet ledger' ? (
+              <LedgerWorkspace />
+            ) : activeNav === 'Bankroll' ? (
+              <BankrollWorkspace />
+            ) : (
+              <SettingsWorkspace />
+            )}
+          </div>
+        </main>
+      </div>
+    </>
   )
 }
 

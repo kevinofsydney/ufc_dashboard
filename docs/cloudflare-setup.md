@@ -1,10 +1,10 @@
 # One-time Cloudflare deployment setup
 
-Updated: 17 July 2026
+Updated: 18 July 2026
 
-Status: **not yet performed**. The repository contains the Worker build and a
-guarded production deployment job, but the release blockers below must be fixed
-and verified before deployment is enabled.
+Status: **not yet performed**. The repository contains the Worker build and
+guarded preview and production deployment jobs, but the external resources and
+release checks below must be configured and verified before deployment is enabled.
 
 The intended steady-state maintenance loop is zero-touch: work locally, push to
 GitHub, and let the workflow test and deploy a green `main` commit.
@@ -15,15 +15,23 @@ GitHub, and let the workflow test and deploy a green `main` commit.
 - The GitHub repository connected to the owner’s account.
 - A production hostname. The provided `workers.dev` hostname is sufficient initially.
 
-## 0. Finish repository release hardening
+## 0. Verify repository release safeguards
 
-Before adding credentials or enabling deployment:
+The repository already provides:
 
-- Add a committed-secret scan to the required CI checks.
-- Add a preview deployment job/environment with its own Worker name, D1 binding,
-  secrets, Access audience, and hostname. Never use the production D1 binding in preview.
-- Configure and document a rate-limit policy suitable for the single-owner app.
-- Complete the missing acceptance tests listed in `implementation-status.md`.
+- a full-history Gitleaks scan in the CI test job;
+- an internal-pull-request-only preview deployment job, gated by
+  `CLOUDFLARE_PREVIEW_DEPLOY_ENABLED`;
+- separate production and preview Worker names, D1 bindings, and rate-limit
+  namespaces in `wrangler.jsonc`;
+- authenticated application rate limits of 600 API requests per identity per
+  minute and 20 model-backed requests per identity per minute; and
+- local functional, reliability, settlement, migration, authorization, and
+  accessibility release checks listed in `implementation-status.md`.
+
+In GitHub, make the Gitleaks/test job a required check. After preview is
+provisioned, run its deployment and smoke checks and verify that a rate-limited
+request returns `429` with a readable response and `Retry-After` header.
 
 Do not set `CLOUDFLARE_DEPLOY_ENABLED` until this section is complete.
 
@@ -34,7 +42,14 @@ Create two D1 databases:
 - `ufc-bet-synthesiser` for production.
 - `ufc-bet-synthesiser-preview` for preview/manual verification.
 
-Copy their generated IDs into the existing `database_id` and `preview_database_id` fields in `wrangler.jsonc`. The all-zero values are deliberate non-production placeholders and must never identify a live database.
+Copy the production ID into the top-level `d1_databases[0].database_id` and the
+preview ID into `env.preview.d1_databases[0].database_id` in `wrangler.jsonc`.
+Also keep the top-level `preview_database_id` pointed at a non-production database
+for Wrangler local/preview use; it must never identify production. The all-zero
+values are deliberate placeholders and must be replaced before remote deployment.
+
+The production rate-limit namespace IDs are `1001` and `1002`; preview uses
+`2001` and `2002`. Keep them distinct if Cloudflare requires replacement IDs.
 
 Also add these non-secret Worker variables to the appropriate preview and
 production Wrangler environments using the values shown by each Access application:
@@ -62,7 +77,9 @@ Add this GitHub Actions production environment variable:
 
 - `PRODUCTION_URL`, set to the final HTTPS origin without a trailing slash.
 
-Create an equivalent GitHub `preview` environment with separate preview values.
+Create an equivalent GitHub `preview` environment with separate preview values,
+including a `PREVIEW_URL` environment variable and preview-only
+`CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` secrets.
 Do not expose production secrets to pull requests from untrusted forks.
 
 ## 3. Protect the application
@@ -73,6 +90,16 @@ Ensure direct alternative hostnames are disabled or covered by the same Access p
 If a custom domain becomes the protected production origin, disable the default `workers.dev` route or confirm that its API requests remain rejected because they receive no valid assertion for the configured audience.
 
 ## 4. Enable automatic deployment
+
+After the preview database, Worker, Access policy, URL, and GitHub environment
+are configured, add this repository-level GitHub Actions variable:
+
+```text
+CLOUDFLARE_PREVIEW_DEPLOY_ENABLED=true
+```
+
+This enables preview deployment only for pull requests whose branch is inside
+this repository. Forked pull requests never receive preview credentials.
 
 After the IDs, secrets, URL, and Access policies are verified, add this repository-level GitHub Actions variable:
 
@@ -85,10 +112,11 @@ skip deployment. After activation, every green push to `main`
 exports production D1, applies migrations, deploys the Worker/static assets, and
 checks both `/health` and authenticated `/api/status`.
 
-The local release baseline now exercises card, fight, source, capper, alias,
-odds, ledger, settlement-correction, bankroll, and backup controls. It does not
-replace the credentialed provider, Access, preview-isolation, or production
-checks below.
+The local release baseline includes the complete generated-bet workflow,
+settlement and recovery boundaries, authorization/validation checks, keyboard
+navigation, Axe scanning, and 200%-equivalent layout containment. It does not
+replace the credentialed provider, Access, preview-isolation, deployed CPU, or
+production checks below.
 
 ## 5. Verify once
 
@@ -100,6 +128,9 @@ Confirm all of the following:
 - Every `/api/*` route is inaccessible without Cloudflare Access.
 - The Access service-token smoke check reaches authenticated `/api/status`.
 - Preview cannot access production D1.
+- Preview and production use distinct rate-limit namespaces, and excessive
+  authenticated API/model traffic returns a readable `429` without affecting the
+  other environment.
 - An idle period requires no wake-up or manual reactivation.
 - A real provider extraction succeeds and its token/cost metadata is recorded.
 - A real UFC.com event page produces a reviewable preview or a readable fallback.

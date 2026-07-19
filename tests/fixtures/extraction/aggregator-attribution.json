@@ -1,0 +1,52 @@
+{
+  "name": "aggregator preserves original attribution",
+  "schema": "individual",
+  "traits": ["aggregator_attribution", "multiple_tips"],
+  "rawText": "Round-up: Analyst Cedar picks Jordan Pike moneyline for one unit at +120. Analyst Moss also picks Pike, but only as a forecast and not a bet. Analyst Flint prefers the over 2.5 at -110 for half a unit.",
+  "expected": {
+    "opinions": [
+      {
+        "fight_id": "fight-delta",
+        "picked_fighter_id": "fighter-pike",
+        "method": null,
+        "round": null,
+        "confidence": "solid",
+        "reasoning": "The round-up explicitly reports Pike as Analyst Moss's forecast.",
+        "attributed_to_raw": "Analyst Moss"
+      }
+    ],
+    "tips": [
+      {
+        "fight_id": "fight-delta",
+        "market_type": "moneyline",
+        "selection_fighter_id": "fighter-pike",
+        "method": null,
+        "round": null,
+        "line_value": null,
+        "selection_text": "Jordan Pike moneyline",
+        "odds_mentioned_raw": "+120",
+        "stated_stake_units": 1,
+        "confidence": "solid",
+        "reasoning": "Analyst Cedar explicitly recommends the moneyline for one unit.",
+        "attributed_to_raw": "Analyst Cedar"
+      },
+      {
+        "fight_id": "fight-delta",
+        "market_type": "over_under",
+        "selection_fighter_id": null,
+        "method": null,
+        "round": null,
+        "line_value": "over 2.5 rounds",
+        "selection_text": "Over 2.5 rounds",
+        "odds_mentioned_raw": "-110",
+        "stated_stake_units": 0.5,
+        "confidence": "solid",
+        "reasoning": "Analyst Flint explicitly recommends the over for half a unit.",
+        "attributed_to_raw": "Analyst Flint"
+      }
+    ],
+    "fights_not_covered": [],
+    "unmatched": [],
+    "unmatched_attribution": []
+  }
+}

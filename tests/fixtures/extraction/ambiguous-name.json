@@ -1,0 +1,19 @@
+{
+  "name": "ambiguous phonetic fighter name",
+  "schema": "individual",
+  "traits": ["name_ambiguity", "hypothetical"],
+  "rawText": "If Maren Cole can keep it standing she could win, but that is a hypothetical. My final pick is the opponent whose name sounds like 'Kayla Koren' by submission. I cannot tell whether the card means Caila Corin or Kayla Corran, so the identity must be reviewed.",
+  "expected": {
+    "opinions": [],
+    "tips": [],
+    "fights_not_covered": [],
+    "unmatched": [
+      {
+        "raw_name": "Kayla Koren",
+        "context": "Final submission pick, but two card fighters are plausible phonetic matches.",
+        "candidate_fight_ids": ["fight-beta", "fight-gamma"]
+      }
+    ],
+    "unmatched_attribution": []
+  }
+}

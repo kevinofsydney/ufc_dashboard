@@ -16,7 +16,44 @@
       "migrations_dir": "migrations",
     },
   ],
+  "ratelimits": [
+    {
+      "name": "API_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 600, "period": 60 },
+    },
+    {
+      "name": "MODEL_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": { "limit": 20, "period": 60 },
+    },
+  ],
   "observability": {
     "enabled": true,
+  },
+  "env": {
+    "preview": {
+      "name": "ufc-bet-synthesiser-preview",
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "ufc-bet-synthesiser-preview",
+          "database_id": "00000000-0000-0000-0000-000000000002",
+          "migrations_dir": "migrations",
+        },
+      ],
+      "ratelimits": [
+        {
+          "name": "API_RATE_LIMITER",
+          "namespace_id": "2001",
+          "simple": { "limit": 600, "period": 60 },
+        },
+        {
+          "name": "MODEL_RATE_LIMITER",
+          "namespace_id": "2002",
+          "simple": { "limit": 20, "period": 60 },
+        },
+      ],
+    },
   },
 }

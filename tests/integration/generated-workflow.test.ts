@@ -12,7 +12,9 @@ import { applyMigrations } from '../helpers/migrations'
 import { createCard } from '../../src/server/repositories/cards'
 import { createCapper } from '../../src/server/repositories/cappers'
 import { createFight } from '../../src/server/repositories/fights'
+import { updateFight } from '../../src/server/repositories/fights'
 import { createMarketPrice } from '../../src/server/repositories/market-prices'
+import { listBets, placeBet } from '../../src/server/repositories/bets'
 import {
   acceptSynthesis,
   getCurrentSynthesis,
@@ -194,7 +196,8 @@ describe('generated research workflow', () => {
     ])
 
     await acceptSynthesis(db, draft.id, 'reviewer@example.com')
-    await expect(getCurrentSynthesis(db, card.id)).resolves.toMatchObject({
+    const acceptedDraft = await getCurrentSynthesis(db, card.id)
+    expect(acceptedDraft).toMatchObject({
       id: draft.id,
       status: 'accepted',
       recommendedUnits: 3,
@@ -207,7 +210,73 @@ describe('generated research workflow', () => {
       ],
     })
 
-    expect(requests).toHaveLength(5)
+    const placed = await placeBet(db, acceptedDraft!.bets[0]!.id, {
+      oddsTaken: '1.8500',
+      stakeUnits: '2.5000',
+    })
+    expect(placed).toMatchObject({
+      state: 'placed',
+      oddsTaken: '1.8500',
+      stakeUnits: '2.5000',
+    })
+
+    const repeatedRun = await parseSource(
+      { DB: db },
+      sources[0]!.id,
+      configuration,
+    )
+    await acceptExtraction(
+      { DB: db },
+      repeatedRun.id,
+      'reviewer@example.com',
+      JSON.parse(repeatedRun.rawResponse ?? '{}'),
+    )
+    const repeatedDraft = await synthesiseCard(
+      { DB: db },
+      card.id,
+      configuration,
+    )
+    expect(repeatedDraft.fightSummaries[0]).toMatchObject({
+      rawSupportCount: 3,
+      eligibleVoterCount: 3,
+    })
+    await acceptSynthesis(db, repeatedDraft.id, 'reviewer@example.com')
+
+    const afterResynthesis = await listBets(db, card.id)
+    expect(afterResynthesis.find((bet) => bet.id === placed.id)).toMatchObject({
+      state: 'placed',
+      oddsTaken: '1.8500',
+      stakeUnits: '2.5000',
+    })
+    expect(
+      afterResynthesis.some((bet) => bet.synthesisRunId === repeatedDraft.id),
+    ).toBe(true)
+
+    const replacedFight = await updateFight(
+      db,
+      fight.id,
+      {
+        fighterAName: fight.fighterA.name,
+        fighterBName: 'Fixture Replacement',
+        weightClass: fight.weightClass,
+        boutOrder: fight.boutOrder,
+        isMainEvent: fight.isMainEvent,
+        status: 'scheduled',
+      },
+      'reviewer@example.com',
+    )
+    expect(replacedFight.fighterA.id).toBe(fight.fighterA.id)
+    expect(replacedFight.fighterB.name).toBe('Fixture Replacement')
+    const historicalOpinion = await db
+      .prepare(
+        `SELECT picked_fighter_id FROM fight_opinions
+         WHERE extraction_run_id = ?`,
+      )
+      .bind(repeatedRun.id)
+      .first<{ picked_fighter_id: string }>()
+    expect(historicalOpinion?.picked_fighter_id).toBe(fight.fighterA.id)
+
+    expect(requests).toHaveLength(8)
     expect(
       requests.every((request) => request.model === configuration.model),
     ).toBe(true)
@@ -223,6 +292,9 @@ describe('generated research workflow', () => {
     ).toEqual([
       'individual_extraction',
       'individual_extraction',
+      'individual_extraction',
+      'fight_overviews',
+      'slate_rationales',
       'individual_extraction',
       'fight_overviews',
       'slate_rationales',

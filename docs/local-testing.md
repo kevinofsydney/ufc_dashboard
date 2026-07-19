@@ -85,19 +85,19 @@ npm.cmd run build
 
 The automated suite never calls a live LLM, UFC page, bookmaker, production D1
 database, or paid service. The verified baseline is the full unit and
-isolated-D1 integration suite plus three Chromium checks.
+isolated-D1 integration suite plus the Chromium release journeys.
 
-`npm.cmd test` includes a clean, isolated D1 restore rehearsal, deterministic
-synthesis transactions, multi-bout UFC markup parsing, and a mocked OpenRouter
-journey through parse, review, acceptance, generated copy, allocation, and
-synthesis acceptance. `npm.cmd run test:e2e` starts and stops its own local
-server and covers interface preferences, phone-width layouts,
-the Cards accordion and vertical setup order, multipart transcript-CSV import,
-card/fight/source/capper/alias/odds mutations, duplicate handling, outcomes,
-manual parlay persistence, settlement correction, bankroll reconciliation, and
-backup download. It does not yet cover
-the complete source-review → odds → generated
-synthesis workflow; that extension remains a pre-production acceptance task.
+`npm.cmd test` includes a clean, isolated D1 restore rehearsal, previous-schema
+migration upgrades, mutation authorization/validation, deterministic synthesis,
+messy extraction fixtures, repeated parse/resynthesis behavior, multi-bout UFC
+markup parsing, and complete single/parlay settlement boundaries.
+`npm.cmd run test:e2e` starts and stops its own local server and covers interface
+preferences, the Cards accordion and vertical setup order, multipart transcript
+CSV import, the manual data/settlement/backup workflow, and the full generated
+source-review → synthesis → Fight Board → placement → settlement → bankroll
+journey. It also runs keyboard skip-navigation, serious/critical WCAG A/AA Axe
+checks on every workspace in both themes, and a 200%-equivalent
+layout-containment pass.
 
 ## Local database
 
@@ -145,20 +145,17 @@ Invoke-RestMethod -Method Post `
 
 The restore endpoint is intentionally not exposed as a normal UI action.
 
-## Manual release checks still required
+## Credentialed release checks still required
 
-Before production activation, manually verify:
+Before production activation, use the protected preview environment to verify:
 
-1. Four messy extraction examples, including uncertain fighter/capper identities.
-2. Direct-over-aggregated deduplication after reviewed acceptance.
-3. Current-price qualification and stale/missing-price explanations.
-4. Generated Core, Value, and optional parlay behavior at budget boundaries.
-5. Re-synthesis after a recommendation has already been placed.
-6. Win, loss, push, void, adjusted parlay, unsettle, and overturned-result paths.
-7. Keyboard navigation and common phone widths.
-8. Workspace subtitles and contextual guidance remain readable at keyboard
-   focus, 200% zoom, and common desktop and phone widths.
-9. UFC event previews report how many bouts have page odds and do not omit
-   rendered prices silently.
+1. A controlled live provider extraction records token/cost metadata and a live
+   UFC event produces either a reviewable preview or a readable fallback.
+2. Preview cannot access production D1, Access credentials, or rate-limit state.
+3. Deployed API/model limits return a readable `429` and `Retry-After` header.
+4. Worker CPU and large-source behavior fit the selected Cloudflare plan.
+5. The deployed UI passes a final keyboard, 200% zoom, phone-width, and visual
+   review behind Cloudflare Access.
+6. A protected backup restores into a clean rehearsal database.
 
 The complete release gap list lives in `docs/implementation-status.md`.

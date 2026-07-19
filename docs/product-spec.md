@@ -654,6 +654,13 @@ Requirements:
 
 - Slate row: selection, market, units, recommendation price, weighted share, tier, rationale and supporting cappers.
 - Place, skip and add-manual-bet actions.
+- Bulk manual-bet CSV import uses the fixed columns
+  `fight,selection,market,odds,stake_units,notes`, validates every row against
+  the selected card before import, and supports exact-name fighter markets plus
+  explicit fight-wide props.
+- The ledger provides a downloadable selected-card CSV template and a copyable
+  screenshot-extraction prompt that tells an external AI not to invent missing
+  fights, markets, odds, or stakes.
 - Structured parlay builder with up to any manually entered number of legs; generated parlays remain capped at three.
 - Editable actual odds and stake before settlement.
 - Recommended exposure, placed exposure and budget are distinct totals.
@@ -678,6 +685,8 @@ Requirements:
 - The desktop sidebar can collapse to an accessible icon rail; theme and collapse preferences persist on that device, while the mobile drawer remains fully labelled.
 - A dedicated How to workspace explains the full card → sources → prices → synthesis → ledger → settlement workflow and links to each step.
 - No blank screen on network, database or LLM failure.
+- Every workspace uses one vertical reading column for its major sections;
+  compact action groups and tabular record rows may retain internal columns.
 - Keyboard-accessible forms and sufficient colour contrast.
 - Destructive actions require targeted confirmation.
 - Autosave status is visible; unsaved navigation warns.
@@ -1091,6 +1100,8 @@ The authoritative completed/remaining split is maintained in
 ### Ledger and settlement
 
 - Generated, manual and parlay bets can be placed with actual odds/stakes.
+- A selected-card CSV template can be downloaded and a valid multi-bet CSV can
+  be previewed and imported with exact fight/fighter matching and no inferred values.
 - Recommended and actual exposure are displayed separately.
 - Manual over-budget exposure produces a confirmation warning.
 - Draw, no-contest, cancelled and overturned outcomes are representable.

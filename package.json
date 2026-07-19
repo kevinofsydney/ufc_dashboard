@@ -8,6 +8,7 @@
     "build": "cross-env XDG_CONFIG_HOME=.localappdata vite build",
     "preview": "cross-env XDG_CONFIG_HOME=.localappdata vite preview",
     "deploy": "npm run build && wrangler deploy",
+    "deploy:preview": "cross-env CLOUDFLARE_ENV=preview npm run build && wrangler deploy --env preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format:check": "prettier --check .",
@@ -17,6 +18,7 @@
     "test:e2e:install": "cross-env PLAYWRIGHT_BROWSERS_PATH=.playwright-browsers playwright install chromium",
     "db:migrate:local": "cross-env XDG_CONFIG_HOME=.localappdata wrangler d1 migrations apply ufc-bet-synthesiser --local",
     "db:migrate:remote": "cross-env XDG_CONFIG_HOME=.localappdata wrangler d1 migrations apply ufc-bet-synthesiser --remote",
+    "db:migrate:preview": "cross-env XDG_CONFIG_HOME=.localappdata wrangler d1 migrations apply ufc-bet-synthesiser-preview --remote --env preview",
     "cf-typegen": "cross-env XDG_CONFIG_HOME=.localappdata wrangler types"
   },
   "dependencies": {
@@ -31,6 +33,7 @@
     "node": ">=22"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.12.1",
     "@cloudflare/vite-plugin": "1.45.0",
     "@cloudflare/workers-types": "5.20260717.1",
     "@eslint/js": "10.0.1",

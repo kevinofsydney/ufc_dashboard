@@ -26,6 +26,83 @@ describe('health endpoint', () => {
     expect(response.status).toBe(401)
   })
 
+  it.each([
+    ['PATCH', '/api/settings'],
+    ['POST', '/api/settings/openrouter/test'],
+    ['POST', '/api/settings/openrouter/models'],
+    ['POST', '/api/backup/restore'],
+    ['POST', '/api/cards/fetch-preview'],
+    ['POST', '/api/cards'],
+    ['PATCH', '/api/cards/card-id'],
+    ['DELETE', '/api/cards/card-id'],
+    ['POST', '/api/fights'],
+    ['PATCH', '/api/fights/fight-id'],
+    ['DELETE', '/api/fights/fight-id'],
+    ['PUT', '/api/fights/fight-id/outcome'],
+    ['POST', '/api/cappers'],
+    ['PATCH', '/api/cappers/capper-id'],
+    ['POST', '/api/fighter-aliases'],
+    ['POST', '/api/capper-aliases'],
+    ['POST', '/api/sources'],
+    ['PATCH', '/api/sources/source-id'],
+    ['POST', '/api/sources/source-id/parse'],
+    ['POST', '/api/extractions/run-id/accept'],
+    ['POST', '/api/market-prices'],
+    ['DELETE', '/api/market-prices/price-id'],
+    ['POST', '/api/cards/card-id/syntheses'],
+    ['POST', '/api/syntheses/run-id/accept'],
+    ['POST', '/api/bets'],
+    ['PATCH', '/api/bets/bet-id'],
+  ] as const)(
+    'rejects unauthenticated %s %s before mutation logic',
+    async (method, path) => {
+      const response = await app.request(
+        `https://example.com${path}`,
+        {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: method === 'DELETE' ? undefined : '{}',
+        },
+        { DB: {} as D1Database },
+      )
+      expect(response.status).toBe(401)
+    },
+  )
+
+  it.each([
+    ['PATCH', '/api/settings'],
+    ['POST', '/api/cards/fetch-preview'],
+    ['POST', '/api/cards'],
+    ['PATCH', '/api/cards/card-id'],
+    ['POST', '/api/fights'],
+    ['PATCH', '/api/fights/fight-id'],
+    ['PUT', '/api/fights/fight-id/outcome'],
+    ['POST', '/api/cappers'],
+    ['PATCH', '/api/cappers/capper-id'],
+    ['POST', '/api/fighter-aliases'],
+    ['POST', '/api/capper-aliases'],
+    ['POST', '/api/sources'],
+    ['PATCH', '/api/sources/source-id'],
+    ['POST', '/api/extractions/run-id/accept'],
+    ['POST', '/api/market-prices'],
+    ['POST', '/api/bets'],
+    ['PATCH', '/api/bets/bet-id'],
+  ] as const)(
+    'rejects invalid local mutation input for %s %s',
+    async (method, path) => {
+      const response = await app.request(
+        `http://localhost${path}`,
+        {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}',
+        },
+        { DB: {} as D1Database },
+      )
+      expect(response.status).toBe(400)
+    },
+  )
+
   it('does not trust spoofed Cloudflare Access headers', async () => {
     const response = await app.request(
       'https://example.com/api/status',
@@ -55,6 +132,49 @@ describe('health endpoint', () => {
     )
 
     expect(response.status).toBe(200)
+  })
+
+  it('returns a readable 429 before an API request reaches route logic', async () => {
+    const response = await app.request(
+      'http://localhost/api/status',
+      undefined,
+      {
+        DB: {} as D1Database,
+        API_RATE_LIMITER: {
+          limit: async () => ({ success: false }),
+        } as RateLimit,
+      },
+    )
+
+    expect(response.status).toBe(429)
+    expect(response.headers.get('Retry-After')).toBe('60')
+    expect(await response.json()).toEqual({
+      error:
+        'Too many requests. Wait one minute before trying this action again.',
+    })
+  })
+
+  it('applies the lower model-backed limit only to model operations', async () => {
+    let modelChecks = 0
+    const response = await app.request(
+      'http://localhost/api/settings/openrouter/models',
+      { method: 'POST' },
+      {
+        DB: {} as D1Database,
+        API_RATE_LIMITER: {
+          limit: async () => ({ success: true }),
+        } as RateLimit,
+        MODEL_RATE_LIMITER: {
+          limit: async () => {
+            modelChecks += 1
+            return { success: false }
+          },
+        } as RateLimit,
+      },
+    )
+
+    expect(modelChecks).toBe(1)
+    expect(response.status).toBe(429)
   })
 
   it('requires complete OpenRouter settings for a connection check', async () => {

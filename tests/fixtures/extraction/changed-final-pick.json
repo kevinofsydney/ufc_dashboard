@@ -1,0 +1,22 @@
+{
+  "name": "changed final pick and no-bet boundary",
+  "schema": "individual",
+  "traits": ["changed_final_pick", "hedge", "no_bet"],
+  "rawText": "Early in the breakdown I leaned toward Rowan Vale, but that was only my first read. After reviewing the grappling exchanges, my final pick is Ellis North by decision. North at 1.45 is too short, so this is explicitly no bet at the current price.",
+  "expected": {
+    "opinions": [
+      {
+        "fight_id": "fight-alpha",
+        "picked_fighter_id": "fighter-ellis",
+        "method": "decision",
+        "round": "distance",
+        "confidence": "solid",
+        "reasoning": "The final pick changed after reviewing the grappling exchanges."
+      }
+    ],
+    "tips": [],
+    "fights_not_covered": [],
+    "unmatched": [],
+    "unmatched_attribution": []
+  }
+}

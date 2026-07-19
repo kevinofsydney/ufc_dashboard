@@ -6,8 +6,11 @@ export async function listMigrationFiles(): Promise<string[]> {
   return entries.filter((name) => name.endsWith('.sql')).sort()
 }
 
-export async function applyMigrations(databases: D1Database[]): Promise<void> {
-  for (const filename of await listMigrationFiles()) {
+export async function applyMigrations(
+  databases: D1Database[],
+  filenames?: string[],
+): Promise<void> {
+  for (const filename of filenames ?? (await listMigrationFiles())) {
     const sql = (await readFile(resolve('migrations', filename), 'utf8'))
       .replace(/^PRAGMA foreign_keys = ON;\s*/u, '')
       .split(';')

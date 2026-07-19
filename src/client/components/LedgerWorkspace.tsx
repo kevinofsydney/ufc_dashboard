@@ -1,5 +1,19 @@
-import { ClipboardCheck, LoaderCircle, Plus } from 'lucide-react'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import {
+  Check,
+  ClipboardCheck,
+  Copy,
+  Download,
+  FileUp,
+  LoaderCircle,
+  Plus,
+} from 'lucide-react'
+import {
+  type ChangeEvent,
+  type FormEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react'
 import {
   getBets,
   getFights,
@@ -18,6 +32,12 @@ import {
   pickTypeOptionsForFight,
   type PickType,
 } from '../bet-builder'
+import {
+  ledgerCsvTemplate,
+  ledgerScreenshotPrompt,
+  parseLedgerCsv,
+  type LedgerCsvBet,
+} from '../ledger-csv'
 import { CardSelect } from './CardSelect'
 import { HelpTooltip } from './HelpTooltip'
 
@@ -26,6 +46,17 @@ type ManualLeg = {
   fightId: string
   selectionFighterId: string
   pickType: PickType
+}
+
+function downloadTextFile(fileName: string, contents: string) {
+  const url = URL.createObjectURL(
+    new Blob([contents], { type: 'text/csv;charset=utf-8' }),
+  )
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 export function LedgerWorkspace() {
@@ -37,6 +68,14 @@ export function LedgerWorkspace() {
     'moneyline',
   )
   const [manualFighterId, setManualFighterId] = useState('')
+  const [csvBets, setCsvBets] = useState<LedgerCsvBet[]>([])
+  const [csvFileName, setCsvFileName] = useState('')
+  const [csvImporting, setCsvImporting] = useState(false)
+  const [csvMessage, setCsvMessage] = useState<{
+    kind: 'success' | 'error'
+    text: string
+  } | null>(null)
+  const [promptCopied, setPromptCopied] = useState(false)
   const [saving, setSaving] = useState(false)
   const [busyBetId, setBusyBetId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -83,6 +122,10 @@ export function LedgerWorkspace() {
     [bets],
   )
   const selectedCard = cards.find((card) => card.id === selectedCardId)
+  const screenshotPrompt = useMemo(
+    () => ledgerScreenshotPrompt(selectedCard?.name ?? '', fights),
+    [fights, selectedCard?.name],
+  )
   const fighterOptions = useMemo(
     () =>
       fights.flatMap((fight) => [
@@ -176,6 +219,88 @@ export function LedgerWorkspace() {
       setError(errorMessage(requestError, 'Manual bet could not be saved'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleCsvFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    setCsvBets([])
+    setCsvFileName('')
+    setCsvMessage(null)
+    if (!file) return
+    if (!file.name.toLocaleLowerCase().endsWith('.csv')) {
+      setCsvMessage({ kind: 'error', text: 'Choose a .csv ledger file.' })
+      return
+    }
+    try {
+      const parsed = parseLedgerCsv(await file.text(), fights)
+      setCsvBets(parsed)
+      setCsvFileName(file.name)
+    } catch (csvError) {
+      setCsvMessage({
+        kind: 'error',
+        text: errorMessage(csvError, 'The ledger CSV could not be read'),
+      })
+    }
+  }
+
+  const handleCsvImport = async () => {
+    if (!selectedCardId || csvBets.length === 0) return
+    const importedStake = csvBets.reduce(
+      (total, row) => total + row.input.stakeUnits,
+      0,
+    )
+    if (
+      selectedCard &&
+      placedExposure + importedStake > selectedCard.budgetUnits &&
+      !window.confirm(
+        `These bets will take actual exposure to ${(placedExposure + importedStake).toFixed(2)}u, above the ${selectedCard.budgetUnits}u card budget. Import them anyway?`,
+      )
+    ) {
+      return
+    }
+
+    setCsvImporting(true)
+    setCsvMessage(null)
+    const imported: Bet[] = []
+    try {
+      for (const row of csvBets) {
+        imported.push(
+          await postManualBet({ cardId: selectedCardId, ...row.input }),
+        )
+      }
+      setBets((current) => [...imported.reverse(), ...current])
+      setCsvBets([])
+      setCsvFileName('')
+      setCsvMessage({
+        kind: 'success',
+        text: `Imported ${imported.length} placed bet${imported.length === 1 ? '' : 's'} into the ledger.`,
+      })
+    } catch (requestError) {
+      if (imported.length > 0) {
+        setBets((current) => [...imported.reverse(), ...current])
+        setCsvBets((current) => current.slice(imported.length))
+      }
+      setCsvMessage({
+        kind: 'error',
+        text: `${imported.length} bet${imported.length === 1 ? '' : 's'} imported before the error. ${errorMessage(requestError, 'The remaining bets could not be imported')}`,
+      })
+    } finally {
+      setCsvImporting(false)
+    }
+  }
+
+  const copyScreenshotPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(screenshotPrompt)
+      setPromptCopied(true)
+      window.setTimeout(() => setPromptCopied(false), 2_000)
+    } catch {
+      setCsvMessage({
+        kind: 'error',
+        text: 'The prompt could not be copied automatically. Select it in the box and copy it manually.',
+      })
     }
   }
 
@@ -295,6 +420,9 @@ export function LedgerWorkspace() {
             setManualFighterId('')
             setManualPickType('moneyline')
             setManualLegs([])
+            setCsvBets([])
+            setCsvFileName('')
+            setCsvMessage(null)
           }}
         />
         <div className="board-summary">
@@ -343,10 +471,7 @@ export function LedgerWorkspace() {
                 )}
                 {fighterOptions.map(({ fighter, fight }) => (
                   <option key={`${fight.id}:${fighter.id}`} value={fighter.id}>
-                    {fighter.name} — vs{' '}
-                    {fight.fighterA.id === fighter.id
-                      ? fight.fighterB.name
-                      : fight.fighterA.name}
+                    {fighter.name}
                   </option>
                 ))}
               </select>
@@ -509,6 +634,139 @@ export function LedgerWorkspace() {
             {saving ? 'Saving bet' : 'Add placed bet'}
           </button>
         </form>
+
+        <section
+          className="ledger-import-card"
+          aria-labelledby="ledger-csv-title"
+        >
+          <div className="editor-card__heading">
+            <div className="icon-tile icon-tile--warm">
+              <FileUp size={19} />
+            </div>
+            <div>
+              <h2 id="ledger-csv-title">Import placed bets from CSV</h2>
+              <p>
+                Upload up to 200 singles at once. Every row is matched against
+                the selected card before anything is imported.
+              </p>
+            </div>
+          </div>
+
+          <div className="ledger-import-actions">
+            <button
+              className="button button--secondary"
+              type="button"
+              disabled={fights.length === 0}
+              onClick={() =>
+                downloadTextFile(
+                  'fightfolio-ledger-template.csv',
+                  ledgerCsvTemplate(fights),
+                )
+              }
+            >
+              <Download size={16} /> Download CSV template
+            </button>
+            <label className="field ledger-import-file">
+              <span>Completed ledger CSV</span>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                disabled={csvImporting || fights.length === 0}
+                onChange={(event) => void handleCsvFile(event)}
+              />
+            </label>
+          </div>
+
+          <div className="ledger-csv-format">
+            <strong>Required columns</strong>
+            <code>fight,selection,market,odds,stake_units,notes</code>
+            <p>
+              Use an exact fighter name with <code>moneyline</code>,{' '}
+              <code>inside_distance</code>, <code>ko_tko</code>,{' '}
+              <code>submission</code>, <code>decision</code>, or{' '}
+              <code>round_1</code> to <code>round_5</code>. For a total or
+              another bout-wide market, put the visible prop in{' '}
+              <code>selection</code> and use <code>fight_prop</code>.
+            </p>
+          </div>
+
+          <details className="ledger-prompt">
+            <summary>Prompt for extracting bets from screenshots</summary>
+            <p>
+              Copy this into an AI chat, then attach your bookmaker screenshots.
+              It tells the AI to use this card’s exact bout names and never
+              guess missing prices or stakes.
+            </p>
+            <textarea
+              aria-label="Screenshot extraction prompt"
+              readOnly
+              rows={18}
+              value={screenshotPrompt}
+            />
+            <button
+              className="button button--secondary button--compact"
+              type="button"
+              onClick={() => void copyScreenshotPrompt()}
+            >
+              {promptCopied ? <Check size={15} /> : <Copy size={15} />}
+              {promptCopied ? 'Prompt copied' : 'Copy prompt'}
+            </button>
+          </details>
+
+          {csvBets.length > 0 && (
+            <div className="ledger-import-preview">
+              <div className="section-heading">
+                <div>
+                  <strong>{csvFileName}</strong>
+                  <p>
+                    {csvBets.length} validated bet
+                    {csvBets.length === 1 ? '' : 's'} ·{' '}
+                    {csvBets
+                      .reduce((total, row) => total + row.input.stakeUnits, 0)
+                      .toFixed(2)}
+                    u total stake
+                  </p>
+                </div>
+                <span className="quiet-badge">Ready to import</span>
+              </div>
+              <div className="ledger-import-list">
+                {csvBets.map((row) => (
+                  <div className="ledger-import-row" key={row.rowNumber}>
+                    <span>Row {row.rowNumber}</span>
+                    <strong>{row.input.selectionText}</strong>
+                    <small>
+                      {row.input.oddsTakenInput} · {row.input.stakeUnits}u
+                    </small>
+                  </div>
+                ))}
+              </div>
+              <button
+                className="button button--primary button--full"
+                type="button"
+                disabled={csvImporting}
+                onClick={() => void handleCsvImport()}
+              >
+                {csvImporting ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <FileUp size={17} />
+                )}
+                {csvImporting
+                  ? 'Importing bets'
+                  : `Import ${csvBets.length} placed bet${csvBets.length === 1 ? '' : 's'}`}
+              </button>
+            </div>
+          )}
+
+          {csvMessage && (
+            <p
+              className={`form-message form-message--${csvMessage.kind === 'error' ? 'error' : 'success'}`}
+              role={csvMessage.kind === 'error' ? 'alert' : 'status'}
+            >
+              {csvMessage.text}
+            </p>
+          )}
+        </section>
 
         <div className="records-card">
           <div className="section-heading">

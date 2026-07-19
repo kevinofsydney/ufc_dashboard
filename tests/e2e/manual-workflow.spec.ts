@@ -528,6 +528,51 @@ test('creates a card and opens its persisted fight workspace', async ({
     name: 'Fighter',
     exact: true,
   })
+  await expect(fighterSelect.locator('option')).toHaveText([
+    'E2E Fighter Alpha',
+    'E2E Fighter Beta',
+    'E2E Fighter Gamma',
+    'E2E Fighter Delta',
+  ])
+
+  const templateDownload = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download CSV template' }).click()
+  await expect((await templateDownload).suggestedFilename()).toBe(
+    'fightfolio-ledger-template.csv',
+  )
+  await page
+    .getByText('Prompt for extracting bets from screenshots', { exact: true })
+    .click()
+  await expect(page.getByLabel('Screenshot extraction prompt')).toContainText(
+    `- E2E Fighter Alpha vs E2E Fighter Beta`,
+  )
+
+  const ledgerCsv = [
+    'fight,selection,market,odds,stake_units,notes',
+    'E2E Fighter Alpha vs E2E Fighter Beta,E2E Fighter Alpha,moneyline,1.80,0.75,CSV single',
+    'E2E Fighter Gamma vs E2E Fighter Delta,Over 1.5 rounds,fight_prop,+120,0.5,CSV total',
+  ].join('\n')
+  await page.getByLabel('Completed ledger CSV').setInputFiles({
+    name: 'placed-bets.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(ledgerCsv),
+  })
+  await expect(
+    page.getByText('2 validated bets', { exact: false }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Import 2 placed bets' }).click()
+  await expect(
+    page.getByText('Imported 2 placed bets into the ledger.'),
+  ).toBeVisible()
+  await expect(
+    page.locator('.ledger-row').filter({ hasText: 'E2E Fighter Alpha ML' }),
+  ).toBeVisible()
+  await expect(
+    page.locator('.ledger-row').filter({
+      hasText: 'E2E Fighter Gamma vs E2E Fighter Delta — Over 1.5 rounds',
+    }),
+  ).toBeVisible()
+
   const betTypeSelect = page.getByRole('combobox', {
     name: 'Bet type',
     exact: true,

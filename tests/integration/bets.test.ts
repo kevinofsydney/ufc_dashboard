@@ -5,7 +5,10 @@ import {
   createManualBet,
   listAnalyticsBets,
   listBets,
+  settleBet,
+  unsettleBet,
 } from '../../src/server/repositories/bets'
+import { recordFightOutcome } from '../../src/server/repositories/outcomes'
 
 describe('bet listings', () => {
   let runtime: Miniflare
@@ -158,5 +161,116 @@ describe('bet listings', () => {
       'Fighter Alpha ML',
       'Fighter Gamma ML',
     ])
+  })
+
+  it.each([
+    ['won', '2.4000'],
+    ['lost', '-2.0000'],
+    ['push', '0.0000'],
+    ['void', '0.0000'],
+  ] as const)(
+    'settles a single %s with the correct net units',
+    async (result, expectedProfit) => {
+      const bet = await createManualBet(db, {
+        cardId: 'card-legs-test',
+        marketType: 'moneyline',
+        selectionText: `Single settlement ${result}`,
+        oddsTaken: '2.2000',
+        stakeUnits: '2.0000',
+        legs: [
+          {
+            fightId: 'fight-legs-one',
+            marketType: 'moneyline',
+            selectionFighterId: 'fighter-alpha',
+            selectionText: 'Fighter Alpha ML',
+          },
+        ],
+      })
+
+      const settled = await settleBet(db, bet.id, {
+        result,
+        actorEmail: 'settlement-test@example.com',
+      })
+      expect(settled.state).toBe('settled')
+      expect(settled.result).toBe(result)
+      expect(settled.netProfitUnits).toBe(expectedProfit)
+      expect(settled.settlementOdds).toBe('2.2000')
+    },
+  )
+
+  it('uses the adjusted settlement price for a parlay with a void leg and supports audited correction', async () => {
+    const bet = await createManualBet(db, {
+      cardId: 'card-legs-test',
+      marketType: 'parlay',
+      selectionText: 'Adjusted Alpha + Gamma parlay',
+      oddsTaken: '3.2000',
+      stakeUnits: '1.5000',
+      legs: [
+        {
+          fightId: 'fight-legs-one',
+          marketType: 'moneyline',
+          selectionFighterId: 'fighter-alpha',
+          selectionText: 'Fighter Alpha ML',
+        },
+        {
+          fightId: 'fight-legs-two',
+          marketType: 'moneyline',
+          selectionFighterId: 'fighter-gamma',
+          selectionText: 'Fighter Gamma ML',
+        },
+      ],
+    })
+
+    const settled = await settleBet(db, bet.id, {
+      result: 'won',
+      settlementOdds: '1.8000',
+      actorEmail: 'settlement-test@example.com',
+    })
+    expect(settled.settlementOdds).toBe('1.8000')
+    expect(settled.netProfitUnits).toBe('1.2000')
+
+    const corrected = await unsettleBet(
+      db,
+      bet.id,
+      'settlement-test@example.com',
+    )
+    expect(corrected).toMatchObject({
+      state: 'placed',
+      result: 'pending',
+      settlementOdds: null,
+      netProfitUnits: null,
+      settledAt: null,
+    })
+    const audit = await db
+      .prepare(
+        `SELECT action FROM audit_events
+         WHERE entity_type = 'bet' AND entity_id = ? ORDER BY created_at`,
+      )
+      .bind(bet.id)
+      .all<{ action: string }>()
+    expect(audit.results.map((row) => row.action)).toEqual([
+      'settled',
+      'unsettled',
+    ])
+  })
+
+  it('records an overturned fight without inventing a winner', async () => {
+    const outcome = await recordFightOutcome(
+      db,
+      'fight-legs-one',
+      {
+        status: 'overturned',
+        winnerFighterId: null,
+        method: null,
+        round: null,
+      },
+      'settlement-test@example.com',
+    )
+    expect(outcome).toMatchObject({
+      status: 'overturned',
+      winnerFighterId: null,
+      method: null,
+      round: null,
+    })
   })
 })

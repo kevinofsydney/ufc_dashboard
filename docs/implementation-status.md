@@ -5,10 +5,11 @@ Updated: 18 July 2026
 ## Executive status
 
 The MVP feature set is implemented and runs locally. It is not yet production
-released. Type checking, linting, repository formatting, automated tests,
-Chromium journeys, and the production build are green. Several PRD acceptance
-tests, preview deployment wiring, and credentialed Cloudflare/provider checks
-remain before the MVP can be called production-ready.
+released. The repository now contains the full local release journey, acceptance
+fixtures, accessibility checks, committed-secret scanning, isolated preview
+wiring, and application rate limits. Credentialed Cloudflare/provider checks and
+activation of the protected preview and production environments remain before
+the MVP can be called production-ready.
 
 Status terms used below:
 
@@ -28,10 +29,14 @@ Status terms used below:
   persistence.
 - Public minimal `/health`; all `/api/*` routes are protected outside localhost.
 - Cloudflare Access JWT verification checks signature, issuer, and audience.
+- Per-identity Cloudflare Worker rate limits allow 600 authenticated API requests
+  per minute and 20 model-backed requests per minute, with readable `429` responses.
 
 ### Weekly product workflow
 
 - Responsive How to, Card, Fight Board, Sources, Odds Board, Bet Ledger, Bankroll, and Settings workspaces.
+- All workspaces use a single vertical reading order for major sections instead
+  of side-by-side page panels, while compact controls and data rows remain usable.
 - Workspace headings use explanatory subtitles without duplicating the same
   guidance in title hover tooltips.
 - Sources is organised as a four-step vertical workflow: choose a card, manage
@@ -79,6 +84,9 @@ Status terms used below:
 - Versioned draft/accepted synthesis; re-synthesis does not rewrite ledger bets.
 - Generated/manual bets, structured parlay legs, actual exposure warnings,
   settlement locking, adjusted settlement odds, and audited unsettlement.
+- Ledger CSV preview/import for up to 200 validated singles, with exact selected-card
+  fight/fighter matching, supported fighter markets, explicit fight-wide props,
+  a downloadable card-aware template, and a copyable non-inventive screenshot prompt.
 - Outcomes, bankroll units/AUD, gross/net/ROI, date filters, breakdowns, capper
   accuracy, and priced-tip ROI without inventing ROI for unpriced opinions.
 - Authenticated versioned JSON backup and clean-database restore.
@@ -92,6 +100,9 @@ Status terms used below:
   workflow without contacting paid or live services.
 - GitHub Actions jobs for checks, guarded production migration/deployment, public
   health smoke testing, and authenticated `/api/status` smoke testing.
+- Full-history Gitleaks scanning and an internal-PR-only, disabled-by-default
+  preview deployment job with a separate Worker, D1 database, Access credentials,
+  rate-limit namespaces, migrations, and smoke checks.
 - Cloudflare observability enabled in `wrangler.jsonc`.
 - One-time Cloudflare setup and local testing runbooks.
 
@@ -102,65 +113,57 @@ The most recent local checks on 18 July 2026 produced:
 - `npm.cmd run typecheck`: passed.
 - `npm.cmd run lint`: passed.
 - `npm.cmd run format:check`: passed repository-wide.
-- `npm.cmd test`: 54 tests across 14 unit and isolated-D1 integration files passed.
-- `npm.cmd run test:e2e`: three Chromium journeys passed.
-- `npm.cmd run build`: Worker and client production bundles passed.
+- `npm.cmd test`: 116 tests across 18 unit and isolated-D1 integration files passed.
+- `npm.cmd run test:e2e`: seven Chromium journeys passed.
+- `npm.cmd run build`: Worker and client production and preview bundles passed.
+- Wrangler production and preview deployment dry-runs resolved the intended
+  assets, D1, and rate-limit bindings without uploading or contacting live data.
 
-The existing automated coverage proves interface preference persistence,
-phone-width layout containment, odds conversion, consensus/allocation
-boundaries, model validation/retry contracts, card-fetch SSRF restrictions,
-deterministic multi-bout UFC markup/odds extraction, backup validation, an
-isolated-D1 generated parse/review/accept/synthesis journey, priced-tip grading,
-a complete backup/restore rehearsal, and a manual browser flow through card,
-fight, source, capper, alias, odds, settlement-correction, bankroll, and backup
-controls. Desktop and phone-sized local visual checks also passed without
-console errors or horizontal overflow. The current Chromium checks additionally
-assert the Cards section order, inline bout expansion, combined setup order,
-multipart CSV import, and phone-width containment.
+The automated coverage proves interface preference persistence, layout
+containment, odds conversion, consensus/allocation boundaries, model
+validation/retry contracts, card-fetch SSRF restrictions, deterministic
+multi-bout UFC markup/odds extraction, backup validation, and generated
+parse/review/accept/synthesis behavior. It also covers changed picks, hedges,
+explicit no-bets, ambiguous names, aggregator attribution, missing tracker data,
+prompt-injection-like source text, identical reparses, resynthesis after placing
+a bet, late opponent replacement, previous-schema migrations, authenticated and
+validated mutations, single/parlay/push/void/overturned settlement, adjusted
+void-leg odds, ROI, and audited unsettlement.
+
+The Chromium suite completes the weekly generated-bet journey from source review
+through synthesis, Fight Board acceptance, placement, settlement, and bankroll
+ROI. It also covers the manual workflow, Cards organisation, multipart CSV
+import, keyboard skip navigation, serious/critical WCAG A/AA Axe checks on all
+eight workspaces in both themes, and 200%-equivalent layout containment. No paid provider, live
+UFC request, production database, secret, or production Cloudflare resource is
+used by these local checks.
 
 No tracked file was deleted during the build, and no live provider, production
 database, paid service, or secret was used.
 
 ## Recommended next sequence
 
-1. **Finish the release-gate acceptance path.** Extend Chromium through mocked
-   source review, synthesis, generated-bet placement, and settlement, then add
-   the remaining messy extraction and settlement boundary fixtures.
-2. **Harden and activate preview deployment.** Add secret scanning and an
-   isolated preview deployment, then prove that preview cannot access production
-   D1 or production credentials.
-3. **Run credentialed smoke and accessibility checks.** Exercise controlled live
-   UFC/OpenRouter/Cloudflare paths, keyboard navigation, 200% zoom, contrast,
-   and a deployed CPU/large-source profile before production activation.
+1. **Provision and activate the protected preview environment.** Replace the
+   preview placeholders, configure its separate D1, Access application, secrets,
+   URL, and GitHub environment, then enable the guarded preview workflow.
+2. **Run credentialed release checks.** Prove preview isolation, exercise
+   controlled live UFC/OpenRouter paths, verify deployed rate limiting, and run a
+   deployed CPU/large-source profile.
+3. **Rehearse recovery and release.** Restore a protected backup into a clean
+   rehearsal database, review the deployed UI manually, then enable the guarded
+   production workflow only after every owner/account item below passes.
 
 ## Required before production release
 
-### Repository and pipeline hardening
+### Repository controls to verify remotely
 
-- Add the PRD-required committed-secret scan to CI; the current workflow does not run one.
-- Add and verify an isolated preview deployment path. The current workflow has a
-  guarded production deployment but does not deploy pull requests to a preview Worker.
-- Decide and implement the production rate-limit layer (Cloudflare policy or an
-  application mechanism) and document the chosen limits.
-
-### Missing PRD acceptance coverage
-
-- Add at least four realistic, de-identified messy extraction fixtures covering
-  changed final picks, hedges, “no bet,” name ambiguity, aggregator attribution,
-  missing stats, and prompt-injection-like source text.
-- Add integration coverage for identical reparse, re-synthesis with placed bets,
-  late fighter replacement, alias resolution, previous-schema migration
-  upgrades, and authorization/validation of mutations. The generated
-  parse → review → accept → synthesis path now has an isolated-D1 integration
-  journey with mocked provider output.
-- Add direct settlement tests for single bets, parlays, adjusted void-leg odds,
-  push/void, ROI denominators, and overturned outcomes.
-- Extend Playwright through the full generated workflow: source review, odds,
-  synthesis, Fight Board, generated-bet placement, settlement, and analytics.
-- Run a keyboard/accessibility scan and a deployed CPU/large-source profile.
-
-These are verification and release-hardening gaps, not missing primary screens or
-weekly workflow implementations.
+- Make the Gitleaks scan and test job required checks in GitHub and confirm a
+  deliberately seeded test secret is rejected without committing a real secret.
+- Run the guarded preview workflow against the provisioned preview resources and
+  prove its Worker, D1, Access audience, secrets, and rate-limit namespaces are
+  isolated from production.
+- Verify the deployed `429` behavior and profile Worker CPU and large-source
+  handling within the selected Cloudflare plan.
 
 ### Owner/account setup
 
@@ -173,7 +176,8 @@ weekly workflow implementations.
   be used as an interactive OpenRouter override, but does not replace a durable
   server default for operational smoke tests.
 - Run controlled live Anthropic/OpenRouter and UFC.com event-page smoke tests.
-- Deploy preview, prove it cannot access production D1, and complete mobile/manual review.
+- Enable `CLOUDFLARE_PREVIEW_DEPLOY_ENABLED=true`, deploy preview, prove it cannot
+  access production D1, and complete mobile/manual review.
 - Complete the first production deploy and authenticated smoke check.
 - Rehearse production backup recovery and confirm retained pre-migration exports.
 - Enable `CLOUDFLARE_DEPLOY_ENABLED=true` only after every item above passes.

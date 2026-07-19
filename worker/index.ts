@@ -112,6 +112,38 @@ app.use('/api/*', async (c, next) => {
   await next()
 })
 
+const modelBackedPath = (pathname: string) =>
+  pathname === '/api/cards/fetch-preview' ||
+  pathname === '/api/settings/openrouter/test' ||
+  pathname === '/api/settings/openrouter/models' ||
+  /\/api\/sources\/[^/]+\/parse$/u.test(pathname) ||
+  /\/api\/cards\/[^/]+\/syntheses$/u.test(pathname)
+
+app.use('/api/*', async (c, next) => {
+  const identity = c.get('accessIdentity')
+  const generalLimit = c.env.API_RATE_LIMITER
+    ? await c.env.API_RATE_LIMITER.limit({ key: identity.email })
+    : { success: true }
+  const modelLimit =
+    generalLimit.success &&
+    modelBackedPath(new URL(c.req.url).pathname) &&
+    c.env.MODEL_RATE_LIMITER
+      ? await c.env.MODEL_RATE_LIMITER.limit({ key: identity.email })
+      : { success: true }
+
+  if (!generalLimit.success || !modelLimit.success) {
+    c.header('Retry-After', '60')
+    return c.json(
+      {
+        error:
+          'Too many requests. Wait one minute before trying this action again.',
+      },
+      429,
+    )
+  }
+  await next()
+})
+
 app.get('/api/status', (c) =>
   c.json({
     status: 'ready',

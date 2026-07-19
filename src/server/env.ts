@@ -10,6 +10,8 @@ export interface Bindings {
   APP_ORIGIN?: string
   CF_ACCESS_TEAM_DOMAIN?: string
   CF_ACCESS_AUD?: string
+  API_RATE_LIMITER?: RateLimit
+  MODEL_RATE_LIMITER?: RateLimit
 }
 
 export interface AccessIdentity {
