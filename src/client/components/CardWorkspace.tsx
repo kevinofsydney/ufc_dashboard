@@ -11,7 +11,6 @@ import {
 } from 'lucide-react'
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import {
-  getCards,
   getApplicationSettings,
   deleteCard,
   getFighterAliases,
@@ -24,12 +23,14 @@ import {
   postFighterAlias,
   postFight,
   postMarketPrice,
+  putCardSourceLink,
   type Alias,
   type Card,
   type CardFetchPreview,
   type Fight,
 } from '../api'
 import { errorMessage } from '../format'
+import { useCards } from '../use-cards'
 import { CardSelect } from './CardSelect'
 import { HelpTooltip } from './HelpTooltip'
 
@@ -57,15 +58,20 @@ const UFC_WEIGHT_CLASSES = [
 ] as const
 
 export function CardWorkspace() {
-  const [cards, setCards] = useState<Card[]>([])
+  const {
+    cards,
+    setCards,
+    selectedCardId,
+    setSelectedCardId,
+    cardsLoaded,
+    cardsError,
+  } = useCards()
   const [fights, setFights] = useState<Fight[]>([])
   const [fighterAliases, setFighterAliases] = useState<Alias[]>([])
   const [fetchPreview, setFetchPreview] = useState<CardFetchPreview | null>(
     null,
   )
-  const [selectedCardId, setSelectedCardId] = useState('')
   const [expandedCardId, setExpandedCardId] = useState('')
-  const [loading, setLoading] = useState(true)
   const [loadingFights, setLoadingFights] = useState(false)
   const [saving, setSaving] = useState(false)
   const [savingFight, setSavingFight] = useState(false)
@@ -80,18 +86,14 @@ export function CardWorkspace() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([getCards(), getFighterAliases(), getApplicationSettings()])
-      .then(([nextCards, nextAliases, settings]) => {
-        setCards(nextCards)
+    Promise.all([getFighterAliases(), getApplicationSettings()])
+      .then(([nextAliases, settings]) => {
         setFighterAliases(nextAliases)
         setCreateUnitValue((settings.defaultUnitValueCents / 100).toFixed(2))
-        if (nextCards.length > 0) setLoadingFights(true)
-        setSelectedCardId((current) => current || nextCards[0]?.id || '')
       })
       .catch((requestError: unknown) =>
         setError(errorMessage(requestError, 'Cards could not be loaded')),
       )
-      .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
@@ -224,6 +226,8 @@ export function CardWorkspace() {
           selectionFighterId: price.fighter.id,
           selectionText: price.fighter.name,
           oddsInput: price.raw,
+          sourceProvider: fetchPreview?.provider ?? null,
+          sourceUrl: fetchPreview?.source_url ?? null,
         })
       } catch {
         complete = false
@@ -264,6 +268,11 @@ export function CardWorkspace() {
         pricesComplete =
           (await importBoutPageOdds(card.id, fight, bout)) && pricesComplete
       }
+      await putCardSourceLink(
+        card.id,
+        fetchPreview.provider,
+        fetchPreview.source_url,
+      )
       setCards((current) => [card, ...current])
       setSelectedCardId(card.id)
       setExpandedCardId('')
@@ -351,6 +360,11 @@ export function CardWorkspace() {
           (await importBoutPageOdds(selectedCardId, fight, bout)) &&
           pricesComplete
       }
+      await putCardSourceLink(
+        selectedCardId,
+        fetchPreview.provider,
+        fetchPreview.source_url,
+      )
       setFights((current) => [...current, ...created].sort(byBoutOrder))
       setFetchPreview(null)
       if (!pricesComplete) {
@@ -505,7 +519,7 @@ export function CardWorkspace() {
           <span className="quiet-badge">{cards.length} total</span>
         </div>
 
-        {loading ? (
+        {!cardsLoaded ? (
           <div className="empty-state">
             <LoaderCircle className="spin" size={23} />
             <p>Loading cards</p>
@@ -704,7 +718,7 @@ export function CardWorkspace() {
                   name="eventUrl"
                   type="url"
                   required
-                  placeholder="https://www.ufc.com/event/..."
+                  placeholder="https://www.ufc.com/event/... or https://www.tapology.com/fightcenter/events/..."
                 />
               </label>
               <button
@@ -717,6 +731,9 @@ export function CardWorkspace() {
             {fetchPreview && (
               <div className="fetch-preview">
                 <div>
+                  <span className="quiet-badge">
+                    {fetchPreview.provider.toUpperCase()}
+                  </span>
                   <strong>
                     {fetchPreview.event_name ?? 'Unnamed UFC event'}
                   </strong>
@@ -728,7 +745,22 @@ export function CardWorkspace() {
                     {previewOddsCoverage.fullyPriced} of{' '}
                     {previewOddsCoverage.total} bouts have both page odds
                   </span>
+                  <a
+                    href={fetchPreview.source_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Review source page
+                  </a>
                 </div>
+                {fetchPreview.conflicts.map((conflict) => (
+                  <p
+                    className="form-message form-message--error"
+                    key={conflict}
+                  >
+                    {conflict}
+                  </p>
+                ))}
                 <ol>
                   {previewDiff.bouts.map((bout) => (
                     <li key={`${bout.fighter_a}-${bout.fighter_b}`}>
@@ -753,7 +785,7 @@ export function CardWorkspace() {
                 </ol>
                 {previewOddsCoverage.incomplete > 0 && (
                   <p className="form-message form-message--warning">
-                    The UFC page does not show both prices for{' '}
+                    The event page does not show both prices for{' '}
                     {previewOddsCoverage.incomplete}{' '}
                     {previewOddsCoverage.incomplete === 1 ? 'bout' : 'bouts'}.
                     You can still import the card, but add or review the missing
@@ -772,8 +804,9 @@ export function CardWorkspace() {
                       }
                     />
                     <span>
-                      Import UFC-page moneylines for newly imported bouts to the
-                      Odds Board as a reviewed snapshot
+                      Import {fetchPreview.provider.toUpperCase()} page
+                      moneylines for newly imported bouts to the Odds Board as a
+                      reviewed snapshot
                     </span>
                   </label>
                 )}
@@ -787,7 +820,11 @@ export function CardWorkspace() {
                   <button
                     className="button button--primary"
                     type="button"
-                    disabled={!fetchPreview.event_name || fetchingCard}
+                    disabled={
+                      !fetchPreview.event_name ||
+                      fetchingCard ||
+                      fetchPreview.conflicts.length > 0
+                    }
                     onClick={() => void handleImportPreview()}
                   >
                     Import as new card
@@ -798,6 +835,7 @@ export function CardWorkspace() {
                     disabled={
                       !selectedCardId ||
                       fetchingCard ||
+                      fetchPreview.conflicts.length > 0 ||
                       previewDiff.bouts.every((bout) => bout.alreadyPresent)
                     }
                     onClick={() => void handleMergePreview()}
@@ -881,6 +919,9 @@ export function CardWorkspace() {
 
               {error && (
                 <p className="form-message form-message--error">{error}</p>
+              )}
+              {cardsError && (
+                <p className="form-message form-message--error">{cardsError}</p>
               )}
 
               <button

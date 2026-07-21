@@ -211,6 +211,11 @@ test('reviews generated evidence, places the slate, settles it, and updates anal
     synthesisRunId: synthesisId,
     origin: 'synthesised',
     tier: 'core',
+    fightId: fight.id,
+    selectionFighterId: fight.fighterA.id,
+    method: null,
+    round: null,
+    lineValue: null,
     marketType: 'moneyline',
     selectionText: `${fight.fighterA.name} moneyline`,
     recommendedUnits: '3.00',
@@ -252,10 +257,88 @@ test('reviews generated evidence, places the slate, settles it, and updates anal
   await page.route('**/api/analytics/bets', async (route) => {
     await route.fulfill({ json: { bets: [generatedBet] } })
   })
+  await page.route(
+    `**/api/cards/${card.id}/results/fetch-preview`,
+    async (route) => {
+      await route.fulfill({
+        json: {
+          preview: {
+            provider: 'ufc',
+            sourceUrl: 'https://www.ufc.com/event/e2e-fixture',
+            outcomes: [
+              {
+                fightId: fight.id,
+                fightLabel: `${fight.fighterA.name} vs ${fight.fighterB.name}`,
+                status: 'winner',
+                winnerFighterId: fight.fighterA.id,
+                method: 'decision',
+                round: '5',
+                sourceProvider: 'ufc',
+                sourceUrl: 'https://www.ufc.com/event/e2e-fixture',
+                issues: [],
+              },
+            ],
+            unmatched: [],
+            conflicts: [],
+            betProposals: [
+              {
+                betId,
+                result: 'won',
+                reason: 'Selected fighter won',
+                requiresManualReview: false,
+                legProposals: [],
+              },
+            ],
+          },
+        },
+      })
+    },
+  )
+  await page.route(`**/api/cards/${card.id}/results/apply`, async (route) => {
+    const reviewed = route.request().postDataJSON() as {
+      outcomes: Array<{ fightId: string }>
+      settlements: Array<{ betId: string; result: string }>
+    }
+    expect(reviewed.outcomes).toHaveLength(1)
+    expect(reviewed.settlements).toEqual([
+      {
+        betId,
+        result: 'won',
+        settlementOddsInput: null,
+        legs: [],
+      },
+    ])
+    generatedBet.state = 'settled'
+    generatedBet.result = 'won'
+    generatedBet.settlementOdds = '1.8000'
+    generatedBet.netProfitUnits = '2.4000'
+    await route.fulfill({
+      json: { outcomesApplied: 1, betsSettled: 1 },
+    })
+  })
 
-  await page.goto('/')
-  await page.getByRole('button', { name: 'Sources' }).click()
-  await page.getByLabel('Working card').selectOption({ label: cardName })
+  await page.goto(`/?card=${card.id}&step=tipper-picks`)
+  await expect(
+    page.getByRole('button', { name: 'Tipper picks', exact: true }),
+  ).toHaveAttribute('aria-current', 'step')
+  await expect(page.getByLabel('Active event')).toHaveValue(card.id)
+
+  const tipCsv = [
+    'capper,fight,selection,market,line,confidence,odds,stake_units,reasoning,source_url',
+    `${capper.name},${fight.fighterA.name} vs ${fight.fighterB.name},${fight.fighterA.name},moneyline,,solid,+115,1.5,Cleaner striking and cardio,https://example.com/e2e-tip`,
+  ].join('\n')
+  await page.getByLabel('Tip CSV file').setInputFiles({
+    name: 'e2e-tips.csv',
+    mimeType: 'text/csv',
+    buffer: Buffer.from(tipCsv),
+  })
+  await page.getByRole('button', { name: 'Preview tips' }).click()
+  await expect(page.getByLabel('Matched')).toBeVisible()
+  await page
+    .getByRole('button', { name: /Review complete.*accept 1 tips/ })
+    .click()
+  await expect(page.getByText('Accepted 1 structured tip.')).toBeVisible()
+
   const sourceRow = page.locator('.source-row').filter({ hasText: sourceTitle })
   await sourceRow.getByRole('button', { name: 'Parse source' }).click()
   await sourceRow.getByRole('button', { name: 'Review extraction' }).click()
@@ -270,8 +353,9 @@ test('reviews generated evidence, places the slate, settles it, and updates anal
   await page.getByRole('button', { name: 'Accept reviewed extraction' }).click()
   await expect(sourceRow).toContainText('Latest run: accepted')
 
-  await page.getByRole('button', { name: 'Fight board' }).click()
-  await page.getByLabel('Working card').selectOption({ label: cardName })
+  await page
+    .getByRole('button', { name: 'Recommendations', exact: true })
+    .click()
   await page.getByRole('button', { name: 'Create draft slate' }).click()
   await expect(
     page.getByRole('heading', { name: 'Recommended slate' }),
@@ -279,12 +363,8 @@ test('reviews generated evidence, places the slate, settles it, and updates anal
   await expect(page.getByText('3/3 cappers', { exact: false })).toBeVisible()
   await expect(page.getByText('27u unspent', { exact: false })).toBeVisible()
   await page.getByRole('button', { name: 'Accept draft' }).click()
-  await expect(
-    page.getByRole('button', { name: 'Accepted to ledger' }),
-  ).toBeDisabled()
+  await page.getByRole('button', { name: 'Review my bets' }).click()
 
-  await page.getByRole('button', { name: 'Bet ledger' }).click()
-  await page.getByLabel('Working card').selectOption({ label: cardName })
   const ledgerBet = page
     .locator('.ledger-row')
     .filter({ hasText: generatedBet.selectionText })
@@ -293,12 +373,16 @@ test('reviews generated evidence, places the slate, settles it, and updates anal
   await ledgerBet.getByLabel('Stake units').fill('3')
   await ledgerBet.getByRole('button', { name: 'Place' }).click()
   await expect(ledgerBet).toContainText('placed')
-  await ledgerBet.getByLabel('Settlement result').selectOption('won')
-  await ledgerBet.getByRole('button', { name: 'Settle' }).click()
-  await expect(ledgerBet).toContainText('WON')
-  await expect(ledgerBet).toContainText('+2.40u')
 
-  await page.getByRole('button', { name: 'Bankroll' }).click()
+  await page.getByRole('button', { name: 'Results', exact: true }).click()
+  await page.getByRole('button', { name: 'Fetch latest results' }).click()
+  await expect(page.getByText('Settlement proposals')).toBeVisible()
+  await page.getByRole('button', { name: 'Apply reviewed results' }).click()
+  await expect(
+    page.getByText('Applied 1 fight results and settled 1 bets.'),
+  ).toBeVisible()
+
+  await page.getByRole('button', { name: 'Performance', exact: true }).click()
   await expect(page.getByText('+2.40u', { exact: true }).first()).toBeVisible()
   await expect(
     page.locator('.bankroll-row').filter({ hasText: cardName }),

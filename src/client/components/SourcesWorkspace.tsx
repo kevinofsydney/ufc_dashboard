@@ -17,7 +17,6 @@ import {
   acceptExtraction,
   getCappers,
   getCapperAliases,
-  getCards,
   getExtractionRuns,
   getSources,
   parseSource,
@@ -27,29 +26,29 @@ import {
   postSource,
   type Capper,
   type Alias,
-  type Card,
   type ExtractionRun,
   type Source,
 } from '../api'
 import { errorMessage, formatCardTimestamp } from '../format'
+import { useCards } from '../use-cards'
 import {
   parseTranscriptCsv,
   type TranscriptCsvSource,
   type TranscriptExtractionMode,
 } from '../transcript-csv'
 import { CardSelect } from './CardSelect'
+import { StructuredTipCsvPanel } from './StructuredTipCsvPanel'
 
 function comparableName(value: string) {
   return value.trim().toLocaleLowerCase()
 }
 
 export function SourcesWorkspace() {
-  const [cards, setCards] = useState<Card[]>([])
+  const { cards, selectedCardId, setSelectedCardId } = useCards()
   const [cappers, setCappers] = useState<Capper[]>([])
   const [capperAliases, setCapperAliases] = useState<Alias[]>([])
   const [sources, setSources] = useState<Source[]>([])
   const [runs, setRuns] = useState<ExtractionRun[]>([])
-  const [selectedCardId, setSelectedCardId] = useState('')
   const [editingSource, setEditingSource] = useState<Source | null>(null)
   const [savingSource, setSavingSource] = useState(false)
   const [savingCapper, setSavingCapper] = useState(false)
@@ -98,12 +97,10 @@ export function SourcesWorkspace() {
   )
 
   useEffect(() => {
-    Promise.all([getCards(), getCappers(), getCapperAliases()])
-      .then(([nextCards, nextCappers, nextAliases]) => {
-        setCards(nextCards)
+    Promise.all([getCappers(), getCapperAliases()])
+      .then(([nextCappers, nextAliases]) => {
         setCappers(nextCappers)
         setCapperAliases(nextAliases)
-        setSelectedCardId((current) => current || nextCards[0]?.id || '')
       })
       .catch((requestError: unknown) =>
         setError(errorMessage(requestError, 'Sources could not be loaded')),
@@ -420,6 +417,7 @@ export function SourcesWorkspace() {
 
   return (
     <section className="workspace-stack sources-workflow">
+      {error && <p className="form-message form-message--error">{error}</p>}
       <ol className="sources-steps">
         <li className="sources-step">
           <span className="sources-step__number" aria-hidden="true">
@@ -441,7 +439,6 @@ export function SourcesWorkspace() {
               onChange={setSelectedCardId}
             />
           </div>
-          {error && <p className="form-message form-message--error">{error}</p>}
         </li>
 
         <li className="sources-step">
@@ -569,6 +566,19 @@ export function SourcesWorkspace() {
               <span>Aggregate vote counts, percentages, or method totals.</span>
             </div>
           </div>
+
+          <StructuredTipCsvPanel
+            key={selectedCardId}
+            cardId={selectedCardId}
+            onImported={async () => {
+              const [nextSources, nextRuns] = await Promise.all([
+                getSources(selectedCardId),
+                getExtractionRuns(selectedCardId),
+              ])
+              setSources(nextSources)
+              setRuns(nextRuns)
+            }}
+          />
 
           <section
             className="csv-import-card"

@@ -12,7 +12,7 @@
 
 The owner currently spends many hours each week preparing UFC bets: watching fight tape and YouTube breakdowns, reading Patreon tips, comparing predictors, and deciding how to allocate a weekly budget. This application outsources the repetitive synthesis work to software and an LLM so that the weekly ritual becomes:
 
-> add a card → paste sources → review extraction → enter current odds → synthesise → read the board → place bets manually → settle → review results
+> review an event → add tipper picks → synthesise recommendations → record my bets → review and apply results
 
 Key facts:
 
@@ -57,7 +57,7 @@ The stats tracker is complementary to individual cappers. It provides broad crow
 The product is a private, single-user web application that:
 
 1. Creates UFC cards from an event page or manual entry.
-2. Ingests pasted transcripts, multipart transcript CSV exports, and written tips; later it can fetch YouTube captions.
+2. Ingests structured tip CSVs, pasted transcripts, multipart transcript CSV exports, and written tips; later it can fetch YouTube captions.
 3. Uses an LLM to extract structured opinions, explicit tips and aggregate statistics.
 4. Requires human review of uncertain identity mappings and extracted data.
 5. Accepts current market prices before synthesis.
@@ -573,18 +573,24 @@ Card lifecycle is independent from extraction and synthesis status. A completed 
 
 ## 8. Weekly user workflow
 
-1. **Configure.** In Settings, record the current bankroll, default unit size, and tab-scoped OpenRouter connection.
-2. **Create card (Wednesday/Thursday).** Paste an official UFC event URL or create manually. Review the fetched bout list, event time, and any displayed page odds. Importing page odds requires an explicit confirmation.
-3. **Add sources.** Select/create a capper, choose source medium and extraction mode, then paste one source or upload a transcript CSV. Multipart rows sharing a video ID are validated, ordered, and combined before parsing.
-4. **Review extraction.** Correct fighter mappings, predictor attribution, markets and confidence. Accept the extraction run.
-5. **Confirm prices.** On the Odds Board, review imported page prices and enter the current bookmaker prices for moneylines and supported props under consideration.
-6. **Synthesise.** OpenRouter extracts/summarises the reviewed language while deterministic code computes consensus, eligibility and stakes for a versioned Fight Board and draft slate.
-7. **Read.** Review consensus, crowd-versus-sharps signals, method/round support, dissent and rationales.
-8. **Place manually.** Use the ledger as a checklist: mark recommendations placed or skipped, record actual odds/stake, and add manual singles or parlays.
-9. **Settle Sunday.** Record fight outcomes and the bookmaker result for every placed bet.
-10. **Review bankroll.** See the manually maintained current balance alongside cumulative P/L, card ROI, performance splits, capper accuracy and manual-versus-system results.
+The application is card-first. A card is selected once in the global app bar and
+applies across five revisitable, left-to-right stages. The selected card and
+stage are reflected in `card` and `step` query parameters and the last card is
+retained locally when the URL does not choose one.
 
-The primary card, odds and settlement workflows must be comfortable on a phone-sized screen.
+1. **Event.** Discover or enter the nearest upcoming UFC event, review the card and order, store UFC.com and Tapology source links, then explicitly import or enter timestamped current odds.
+2. **Tipper picks.** Upload a structured tip CSV, upload an existing transcript CSV, or paste transcript/written source material. Review identity mappings and accept versioned extraction evidence.
+3. **Recommendations.** Review readiness and staleness, inspect Fight Board evidence, synthesise a deterministic draft slate, and accept it.
+4. **My bets.** Decide which recommendations were placed or skipped, record actual odds and stakes, and add structured manual singles or parlays.
+5. **Results.** Fetch UFC.com results with Tapology fallback/gap filling, review source conflicts, fight outcomes and deterministic bet/leg proposals in one bulk review, then apply settlement transactionally.
+
+Help, Performance/Bankroll, Settings, theme and event switching are global app
+bar utilities rather than workflow stages. Progress is guided but never locked;
+missing prerequisites produce warnings and targeted actions.
+
+The workflow must be comfortable on a phone-sized screen. Its stage strip scrolls
+internally without page-level horizontal overflow, shows `Step n of 5`, and is
+paired with Previous/Next actions.
 
 ---
 
@@ -594,21 +600,35 @@ The primary card, odds and settlement workflows must be comfortable on a phone-s
 
 - CRUD for Cards and Cappers.
 - Card deletion requires an explicit inline confirmation and is implemented as an audited soft delete so related history is preserved.
-- Create a card manually or fetch by UFC.com URL, with a separately implemented fallback adapter if legally and technically viable.
-- Fetch order: deterministic UFC bout markup/structured page data → JSON-LD → stripped page text plus LLM → manual entry.
-- Auto-suggesting the next event is optional until a stable discovery source is proven.
+- Create a card manually or fetch by saved UFC.com or Tapology event URL.
+- When no upcoming active card exists, opening Event attempts a review-only discovery of the nearest upcoming UFC event in `Australia/Sydney`; it never writes without confirmation.
+- Fetch order is UFC.com deterministic markup/structured data → UFC JSON-LD/LLM fallback → Tapology deterministic fallback/gap fill → manual entry.
+- Only exact HTTPS UFC.com and Tapology hosts are allowed. Redirects are revalidated and fetches have time and response-size limits.
 - The fetched result is always a preview diff, never an automatic overwrite.
+- Previews expose provider, source URL, field provenance, additions, removals, replacements, order changes, odds coverage and source conflicts. UFC wins agreement; fighter/order/result disagreements block application.
 - When the page explicitly displays fighter moneyline odds, preserve them as raw text in the preview. The LLM does not convert them.
 - The preview reports how many bouts have both displayed page prices and warns
   when coverage is incomplete; missing odds remain missing and are never
   inferred.
-- Importing UFC-page odds to the Odds Board is an explicit user choice and records `UFC event page` provenance. Unconfirmed page odds cannot qualify a bet.
+- Importing event-page odds to the Odds Board is an explicit user choice and records provider/source provenance. Unconfirmed page odds cannot qualify a bet.
 - Add, replace, rename, reorder, cancel or soft-delete fights.
 - Re-fetch merges by participant IDs/aliases and flags additions, removals, replacements and order changes.
 - No fuzzy match may overwrite reviewed manual data.
 
 ### 9.2 Source management and extraction
 
+- Structured tip CSV v1 uses the exact columns
+  `capper,fight,selection,market,line,confidence,odds,stake_units,reasoning,source_url`
+  with one explicit tip per row. Capper, exact selected-card fight label,
+  selection, canonical market, confidence, and reasoning are required.
+- Canonical markets are `moneyline`, `inside_distance`, `ko_tko`, `submission`,
+  `decision`, `round_1` through `round_5`, `over_under`, and `fight_prop`.
+- Structured CSV rows are previewed before acceptance. Unknown identities,
+  duplicates, and opposing selections by the same capper on the same fight are
+  review blockers. Mentioned odds remain source evidence only.
+- The raw structured CSV is stored as a source and accepted through a versioned,
+  deterministic non-LLM extraction run. Distinct tips are retained, while
+  directional consensus counts at most one vote per capper and fight.
 - Text area handles at least 20,000 characters and displays the model-aware input limit.
 - Transcript CSV import groups rows by `video_id`, validates complete and unique `part_number` values against `part_count`, and concatenates the ordered parts without altering their text.
 - CSV import previews one source per video, permits an extraction-mode choice for each source, creates missing individual cappers from `channel_name`, and does not automatically parse or accept imported evidence.
@@ -669,8 +689,13 @@ Requirements:
 
 ### 9.6 Settlement and bankroll
 
-- Record winner/draw/no-contest/cancelled/overturned outcomes, method and round.
-- Record bookmaker settlement per placed bet.
+- Fetch and preview winner/draw/no-contest/cancelled/overturned outcomes, method and round from the saved UFC URL with Tapology fallback; manual entry remains available.
+- Deterministically propose moneyline, winner-by-method, exact-round,
+  inside-distance, and structured parlay-leg results. Free-text/insufficient
+  totals, legacy unstructured bets, conflicts and ambiguous bookmaker cases stay manual.
+- Review every fight, bet and structured leg before transactional apply. Never
+  invent settlement odds; a winning parlay with a void leg requires explicit
+  confirmation of the adjusted bookmaker odds.
 - Running cumulative P/L in units and AUD, filterable by date.
 - Per-card stake, gross return, net and ROI.
 - Splits by tier, market type, origin and capper support.
@@ -681,13 +706,16 @@ Requirements:
 
 - Explicit loading, empty, success, needs-review and error states.
 - Contextual help icons explain each workspace and major workflow section on hover, keyboard focus, or touch focus.
-- Light and dark themes carry the sidebar's charcoal-and-lime visual language through cards, controls, forms, tables, and status states.
-- The desktop sidebar can collapse to an accessible icon rail; theme and collapse preferences persist on that device, while the mobile drawer remains fully labelled.
-- A dedicated How to workspace explains the full card → sources → prices → synthesis → ledger → settlement workflow and links to each step.
+- A top app bar contains Fightfolio, the active event/date/status, Help,
+  Performance, Settings and theme controls. There is no application sidebar.
+- A sticky horizontal five-stage navigation shows number, name, semantic icon,
+  textual state and concise server-computed counts. Colour never conveys state alone.
+- Help globally explains and links into the complete five-stage workflow.
 - No blank screen on network, database or LLM failure.
 - Every workspace uses one vertical reading column for its major sections;
   compact action groups and tabular record rows may retain internal columns.
-- Keyboard-accessible forms and sufficient colour contrast.
+- Keyboard-accessible forms, 44px touch targets, sufficient colour contrast,
+  focus movement to the stage heading, and browser back/forward support.
 - Destructive actions require targeted confirmation.
 - Autosave status is visible; unsaved navigation warns.
 - Dates use Sydney local presentation while persisted instants use UTC.
@@ -1035,10 +1063,11 @@ Expected fixtures test schema handling and deterministic merging. Live-model out
 
 The release-gate Playwright journey must cover:
 
-> authenticate → create card → edit fights → add and accept source → resolve unmatched name → enter odds → synthesise → inspect Fight Board → place generated bet → add manual/parlay bet → settle → verify bankroll
+> authenticate → discover/review card and odds → import structured tip CSV → accept broader source evidence → synthesise → inspect recommendations → record placed bets → fetch/review results → apply settlement → verify bankroll
 
-The current Playwright checks cover persistent light/dark, sidebar and layout
-preferences; phone-width overflow; card/fight editing; fighter/capper aliases;
+The Playwright checks cover persistent light/dark and selected-event context,
+direct stage URLs, browser back/forward, global utilities, phone-width workflow
+strip containment, card/fight editing, fighter/capper aliases;
 source create/edit; duplicate handling; odds add/hide; outcomes; manual and
 structured parlay placement; settlement correction; bankroll reconciliation;
 and backup download. Live source parsing/review, generated synthesis, and

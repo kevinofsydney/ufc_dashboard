@@ -45,6 +45,9 @@ export function buildBetSelection(
 ): {
   marketType: 'moneyline' | 'method' | 'round' | 'prop'
   selectionText: string
+  method: 'ko_tko' | 'submission' | 'decision' | null
+  round: string | null
+  lineValue: string | null
 } | null {
   const fighter = [fight.fighterA, fight.fighterB].find(
     (participant) => participant.id === fighterId,
@@ -52,27 +55,48 @@ export function buildBetSelection(
   if (!fighter) return null
 
   if (pickType === 'moneyline') {
-    return { marketType: 'moneyline', selectionText: `${fighter.name} ML` }
+    return {
+      marketType: 'moneyline',
+      selectionText: `${fighter.name} ML`,
+      method: null,
+      round: null,
+      lineValue: null,
+    }
   }
   if (pickType === 'inside_distance') {
     return {
       marketType: 'prop',
       selectionText: `${fighter.name} Inside the Distance`,
+      method: null,
+      round: null,
+      lineValue: 'inside_distance',
     }
   }
   if (pickType === 'ko_tko') {
-    return { marketType: 'method', selectionText: `${fighter.name} by KO/TKO` }
+    return {
+      marketType: 'method',
+      selectionText: `${fighter.name} by KO/TKO`,
+      method: 'ko_tko',
+      round: null,
+      lineValue: null,
+    }
   }
   if (pickType === 'submission') {
     return {
       marketType: 'method',
       selectionText: `${fighter.name} by Submission`,
+      method: 'submission',
+      round: null,
+      lineValue: null,
     }
   }
   if (pickType === 'decision') {
     return {
       marketType: 'method',
       selectionText: `${fighter.name} by Decision`,
+      method: 'decision',
+      round: null,
+      lineValue: null,
     }
   }
 
@@ -82,5 +106,8 @@ export function buildBetSelection(
   return {
     marketType: 'round',
     selectionText: `${fighter.name} in Round ${round}`,
+    method: null,
+    round: String(round),
+    lineValue: null,
   }
 }

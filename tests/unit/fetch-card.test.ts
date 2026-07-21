@@ -19,6 +19,14 @@ describe('UFC event page preview', () => {
         'https://www.ufc.com/event/ufc-fight-night-july-25-2026',
       ),
     ).resolves.toEqual({
+      provider: 'ufc',
+      source_url: 'https://www.ufc.com/event/ufc-fight-night-july-25-2026',
+      field_provenance: {
+        event_name: 'ufc',
+        event_starts_at_raw: 'ufc',
+        bouts: 'ufc',
+      },
+      conflicts: [],
       event_name: 'UFC Fight Night: Ankalaev vs Guskov',
       event_starts_at_raw: '2026-07-25T16:00:00.000Z',
       bouts: [
@@ -99,7 +107,7 @@ describe('UFC event page preview', () => {
     vi.stubGlobal('fetch', fetchMock)
     await expect(
       fetchCardPreview({ DB: {} as D1Database }, 'https://example.com/private'),
-    ).rejects.toThrow(/UFC\.com/)
+    ).rejects.toThrow(/UFC\.com or Tapology/)
     await expect(
       fetchCardPreview(
         { DB: {} as D1Database },
@@ -163,6 +171,42 @@ describe('UFC event page preview', () => {
         {
           fighter_a_odds_raw: '-245',
           fighter_b_odds_raw: '+200',
+        },
+      ],
+    })
+  })
+
+  it('extracts a Tapology card without calling an LLM', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(`
+          <html><head><title>UFC Fixture: Alpha vs Beta</title></head><body>
+            <div class="fightCardBout">
+              <span class="fightCardFighterName">Alpha Fighter</span>
+              <span class="fightOdds">-125</span>
+              <span class="fightCardFighterName">Beta Fighter</span>
+              <span class="fightOdds">+105</span>
+            </div>
+          </body></html>
+        `),
+      ),
+    )
+
+    await expect(
+      fetchCardPreview(
+        { DB: {} as D1Database },
+        'https://www.tapology.com/fightcenter/events/fixture',
+      ),
+    ).resolves.toMatchObject({
+      provider: 'tapology',
+      event_name: 'UFC Fixture: Alpha vs Beta',
+      bouts: [
+        {
+          fighter_a: 'Alpha Fighter',
+          fighter_b: 'Beta Fighter',
+          fighter_a_odds_raw: '-125',
+          fighter_b_odds_raw: '+105',
         },
       ],
     })

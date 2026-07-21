@@ -1,15 +1,15 @@
 # Implementation status
 
-Updated: 18 July 2026
+Updated: 21 July 2026
 
 ## Executive status
 
-The MVP feature set is implemented and runs locally. It is not yet production
-released. The repository now contains the full local release journey, acceptance
-fixtures, accessibility checks, committed-secret scanning, isolated preview
-wiring, and application rate limits. Credentialed Cloudflare/provider checks and
-activation of the protected preview and production environments remain before
-the MVP can be called production-ready.
+The MVP feature set, including the card-first weekly workflow, is implemented
+and runs locally. It is not yet production released. The repository now contains
+the full local release journey, acceptance fixtures, accessibility checks,
+committed-secret scanning, isolated preview wiring, and application rate limits.
+Credentialed Cloudflare/provider checks and activation of the protected preview
+and production environments remain before the MVP can be called production-ready.
 
 Status terms used below:
 
@@ -27,6 +27,9 @@ Status terms used below:
 - Cards, fighters, aliases, fights, participants, cappers, sources, extraction
   runs, opinions, tips, stats, prices, synthesis, bets, legs, outcomes, and audit
   persistence.
+- Per-card UFC/Tapology source links and provenance, imported outcome provenance,
+  and structured fight/fighter/method/round/line settlement targets on new bets
+  and parlay legs are persisted through additive migration `0012_card_workflow.sql`.
 - Public minimal `/health`; all `/api/*` routes are protected outside localhost.
 - Cloudflare Access JWT verification checks signature, issuer, and audience.
 - Per-identity Cloudflare Worker rate limits allow 600 authenticated API requests
@@ -34,21 +37,59 @@ Status terms used below:
 
 ### Weekly product workflow
 
-- Responsive How to, Card, Fight Board, Sources, Odds Board, Bet Ledger, Bankroll, and Settings workspaces.
-- All workspaces use a single vertical reading order for major sections instead
-  of side-by-side page panels, while compact controls and data rows remain usable.
-- Workspace headings use explanatory subtitles without duplicating the same
-  guidance in title hover tooltips.
-- Sources is organised as a four-step vertical workflow: choose a card, manage
-  capper identities, save source material, then parse/review/accept it.
+- A card-first shell replaces the sidebar with a global app bar and five
+  left-to-right, always-revisitable stages: Event, Tipper picks, Recommendations,
+  My bets, and Results. Help, Performance/Bankroll, Settings, and theme controls
+  are global utilities.
+- The active event is shared across all stages, persisted locally, and
+  synchronised with `card`, `step`, and utility-view query parameters. Direct
+  links, reloads, and browser back/forward navigation retain the workflow context.
+- A server-computed workflow-status contract supplies each stage's semantic
+  state, concise counts, blockers, and recommendation staleness. Icons and text
+  accompany every status, and incomplete prerequisites guide without locking
+  later stages.
+- Desktop uses a sticky horizontal workflow strip. Mobile uses a contained,
+  internally scrollable snap-aligned strip, a visible step counter, and
+  Previous/Next controls without page-level horizontal overflow.
+- Stage navigation moves focus to the destination heading, maintains keyboard
+  access and 44px touch targets, and preserves existing unsaved-change warnings.
+- Event combines reviewed card/order management, aliases, event source settings,
+  and Odds Board evidence. With no upcoming card it attempts a review-only UFC
+  discovery in the Australia/Sydney context and falls back to Tapology; it never
+  writes a discovered event silently.
+- UFC/Tapology card previews carry provider, source URL, field provenance,
+  conflicts, bout changes/order, and odds coverage. Fetches enforce exact HTTPS
+  host allowlists, redirect revalidation, timeouts, and response-size limits.
+- Website prices remain unconfirmed evidence until explicitly imported as a
+  timestamped Odds Board snapshot.
+- Tipper picks presents structured tip CSV, transcript CSV, and pasted/written
+  sources together without another working-card selector.
+- Structured tip CSV v1 validates the versioned schema and canonical markets,
+  previews exact selected-card mappings and conflicts, stores the raw source,
+  and creates an accepted deterministic non-LLM extraction run. Mentioned odds
+  remain evidence only, and directional consensus counts at most one vote per
+  capper and fight.
+- Recommendations combines readiness, synthesis controls, Fight Board evidence,
+  and draft acceptance. Changes to accepted evidence, fight data, or qualifying
+  odds mark an older synthesis stale; deterministic allocation and budget maths
+  remain unchanged.
+- My bets combines recommendation place/skip decisions, manual singles, parlays,
+  and ledger CSV import while retaining legacy unstructured bets for manual
+  settlement.
+- Results owns fight outcomes and provides saved-URL UFC-first/Tapology-fallback
+  fetch previews, provenance/conflict review, deterministic structured market and
+  parlay-leg grading, and one transactional reviewed apply with audit records.
+  Ambiguous, free-text, incomplete, legacy, and void-price cases remain manual.
+- All stage content keeps a single vertical reading order for major sections
+  while compact controls and data rows remain usable.
 - Reliable source/capper form completion after asynchronous saves, readable
   duplicate-name/alias conflicts, and automatic local migrations before the
   development server starts.
 - Transcript CSV preview and import, including validated multipart-row ordering
   and recombination, per-video extraction modes, duplicate detection, and
   automatic capper creation for individual sources.
-- Persistent light/dark themes and a collapsible desktop icon rail, with the
-  charcoal-and-lime design system applied across workspaces and labelled mobile navigation preserved.
+- Persistent light/dark themes, with the charcoal-and-lime design system applied
+  across workflow stages and labelled global utilities.
 - Helpful workspace subtitles and contextual guidance for the main workflow sections.
 - Persistent saved OpenRouter models, live text-model catalogue loading,
   model-aware reasoning effort selection, tab-scoped key entry, masked-key
@@ -108,35 +149,37 @@ Status terms used below:
 
 ## Current local verification
 
-The most recent local checks on 18 July 2026 produced:
+The most recent local checks on 21 July 2026 produced:
 
 - `npm.cmd run typecheck`: passed.
 - `npm.cmd run lint`: passed.
 - `npm.cmd run format:check`: passed repository-wide.
-- `npm.cmd test`: 116 tests across 18 unit and isolated-D1 integration files passed.
+- `npm.cmd test`: 145 tests across 21 unit and isolated-D1 integration files passed.
 - `npm.cmd run test:e2e`: seven Chromium journeys passed.
-- `npm.cmd run build`: Worker and client production and preview bundles passed.
-- Wrangler production and preview deployment dry-runs resolved the intended
-  assets, D1, and rate-limit bindings without uploading or contacting live data.
+- `npm.cmd run build`: Worker and client production bundles passed.
 
-The automated coverage proves interface preference persistence, layout
-containment, odds conversion, consensus/allocation boundaries, model
-validation/retry contracts, card-fetch SSRF restrictions, deterministic
-multi-bout UFC markup/odds extraction, backup validation, and generated
-parse/review/accept/synthesis behavior. It also covers changed picks, hedges,
-explicit no-bets, ambiguous names, aggregator attribution, missing tracker data,
-prompt-injection-like source text, identical reparses, resynthesis after placing
-a bet, late opponent replacement, previous-schema migrations, authenticated and
-validated mutations, single/parlay/push/void/overturned settlement, adjusted
-void-leg odds, ROI, and audited unsettlement.
+The automated coverage proves selected-event and theme persistence, direct stage
+navigation, layout containment, odds conversion, consensus/allocation
+boundaries, model validation/retry contracts, card-fetch SSRF restrictions,
+deterministic UFC and Tapology markup extraction, structured-tip CSV validation
+and evidence-only odds, exact card identity mapping, one-vote-per-capper
+consensus, backup validation, and generated parse/review/accept/synthesis
+behavior. It also covers changed picks, hedges, explicit no-bets, ambiguous
+names, aggregator attribution, missing tracker data, prompt-injection-like source
+text, identical reparses, resynthesis after placing a bet, late opponent
+replacement, previous-schema migrations, authenticated mutations, transactional
+result application with provenance/audits, structured single/parlay grading,
+draw/no-contest/cancellation/overturned/manual fallbacks, void-leg confirmation,
+ROI, and audited unsettlement.
 
-The Chromium suite completes the weekly generated-bet journey from source review
-through synthesis, Fight Board acceptance, placement, settlement, and bankroll
-ROI. It also covers the manual workflow, Cards organisation, multipart CSV
-import, keyboard skip navigation, serious/critical WCAG A/AA Axe checks on all
-eight workspaces in both themes, and 200%-equivalent layout containment. No paid provider, live
-UFC request, production database, secret, or production Cloudflare resource is
-used by these local checks.
+The Chromium suite completes the weekly journey from reviewed card/odds through
+structured tip CSV, synthesis, acceptance, placement, fetched-results review,
+transactional settlement, and bankroll ROI. It also covers the manual workflow,
+event persistence, multipart transcript CSV import, 390px mobile containment,
+keyboard/focus navigation, serious/critical WCAG A/AA Axe checks across the five
+stages and global utilities in both themes, and 200%-equivalent layout
+containment. No paid provider, live UFC/Tapology request, production database,
+secret, or production Cloudflare resource is used by these local checks.
 
 No tracked file was deleted during the build, and no live provider, production
 database, paid service, or secret was used.

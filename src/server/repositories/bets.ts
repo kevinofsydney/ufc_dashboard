@@ -9,6 +9,11 @@ export interface BetRecord {
   origin: 'synthesised' | 'manual'
   tier: 'core' | 'value' | 'parlay' | 'manual'
   marketType: string
+  fightId: string | null
+  selectionFighterId: string | null
+  method: string | null
+  round: string | null
+  lineValue: string | null
   selectionText: string
   recommendedUnits: string | null
   recommendedOdds: string | null
@@ -32,6 +37,9 @@ export interface BetLegRecord {
   fightId: string
   marketType: string
   selectionFighterId: string | null
+  method: string | null
+  round: string | null
+  lineValue: string | null
   selectionText: string
   legResult: 'pending' | 'won' | 'lost' | 'push' | 'void'
 }
@@ -42,6 +50,9 @@ interface BetLegRow {
   fight_id: string
   market_type: string
   selection_fighter_id: string | null
+  method: string | null
+  round: string | null
+  line_value: string | null
   selection_text: string
   leg_result: BetLegRecord['legResult']
 }
@@ -53,6 +64,11 @@ interface BetRow {
   origin: BetRecord['origin']
   tier: BetRecord['tier']
   market_type: string
+  fight_id: string | null
+  selection_fighter_id: string | null
+  method: string | null
+  round: string | null
+  line_value: string | null
   selection_text: string
   recommended_units: string | null
   recommended_odds: string | null
@@ -78,6 +94,11 @@ function mapBet(row: BetRow): BetRecord {
     origin: row.origin,
     tier: row.tier,
     marketType: row.market_type,
+    fightId: row.fight_id,
+    selectionFighterId: row.selection_fighter_id,
+    method: row.method,
+    round: row.round,
+    lineValue: row.line_value,
     selectionText: row.selection_text,
     recommendedUnits: row.recommended_units,
     recommendedOdds: row.recommended_odds,
@@ -103,6 +124,9 @@ function mapLeg(row: BetLegRow): BetLegRecord {
     fightId: row.fight_id,
     marketType: row.market_type,
     selectionFighterId: row.selection_fighter_id,
+    method: row.method,
+    round: row.round,
+    lineValue: row.line_value,
     selectionText: row.selection_text,
     legResult: row.leg_result,
   }
@@ -117,7 +141,7 @@ async function listLegsForBets(
   const result = await db
     .prepare(
       `SELECT id, bet_id, fight_id, market_type, selection_fighter_id,
-              selection_text, leg_result
+              method, round, line_value, selection_text, leg_result
        FROM bet_legs
        WHERE bet_id IN (${betIds.map(() => '?').join(', ')})
        ORDER BY created_at`,
@@ -134,7 +158,8 @@ async function listLegsForBets(
 
 const betColumns = `
   bets.id, bets.card_id, bets.synthesis_run_id, bets.origin, bets.tier,
-  bets.market_type, bets.selection_text, bets.recommended_units,
+  bets.market_type, bets.fight_id, bets.selection_fighter_id, bets.method,
+  bets.round, bets.line_value, bets.selection_text, bets.recommended_units,
   bets.recommended_odds, bets.consensus_share, bets.rationale, bets.state,
   bets.odds_taken, bets.settlement_odds, bets.stake_units, bets.result,
   bets.net_profit_units, bets.settled_at, bets.notes, bets.created_at,
@@ -216,6 +241,9 @@ export async function createManualBet(
       fightId: string
       marketType: string
       selectionFighterId: string | null
+      method?: string | null
+      round?: string | null
+      lineValue?: string | null
       selectionText: string
     }>
   },
@@ -249,16 +277,24 @@ export async function createManualBet(
       .prepare(
         `INSERT INTO bets (
          id, card_id, synthesis_run_id, origin, tier, market_type,
+         fight_id, selection_fighter_id, method, round, line_value,
          selection_text, recommended_units, recommended_odds, consensus_share,
          rationale, state, odds_taken, settlement_odds, stake_units, result,
          net_profit_units, settled_at, notes, created_at, updated_at
-       ) VALUES (?, ?, NULL, 'manual', 'manual', ?, ?, NULL, NULL, NULL,
+       ) VALUES (?, ?, NULL, 'manual', 'manual', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL,
                  NULL, 'placed', ?, NULL, ?, 'pending', NULL, NULL, ?, ?, ?)`,
       )
       .bind(
         id,
         input.cardId,
         input.marketType,
+        input.legs?.length === 1 ? (input.legs[0]?.fightId ?? null) : null,
+        input.legs?.length === 1
+          ? (input.legs[0]?.selectionFighterId ?? null)
+          : null,
+        input.legs?.length === 1 ? (input.legs[0]?.method ?? null) : null,
+        input.legs?.length === 1 ? (input.legs[0]?.round ?? null) : null,
+        input.legs?.length === 1 ? (input.legs[0]?.lineValue ?? null) : null,
         input.selectionText,
         input.oddsTaken,
         input.stakeUnits,
@@ -275,7 +311,7 @@ export async function createManualBet(
              id, bet_id, fight_id, market_type, selection_fighter_id,
              method, round, line_value, selection_text, leg_result,
              created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 'pending', ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
         )
         .bind(
           crypto.randomUUID(),
@@ -283,6 +319,9 @@ export async function createManualBet(
           leg.fightId,
           leg.marketType,
           leg.selectionFighterId,
+          leg.method ?? null,
+          leg.round ?? null,
+          leg.lineValue ?? null,
           leg.selectionText,
           now,
           now,

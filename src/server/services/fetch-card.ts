@@ -8,6 +8,37 @@ import { callModel } from '../llm/call-model'
 import { providerConfigurationFromEnv } from '../llm/configuration'
 import type { ProviderConfiguration } from '../llm/provider'
 
+export type CardPageProvider = 'ufc' | 'tapology'
+
+export interface CardPagePreview extends CardFetchResult {
+  provider: CardPageProvider
+  source_url: string
+  field_provenance: {
+    event_name: CardPageProvider
+    event_starts_at_raw: CardPageProvider
+    bouts: CardPageProvider
+  }
+  conflicts: string[]
+}
+
+function withPreviewMetadata(
+  preview: CardFetchResult,
+  provider: CardPageProvider,
+  sourceUrl: string,
+): CardPagePreview {
+  return {
+    ...preview,
+    provider,
+    source_url: sourceUrl,
+    field_provenance: {
+      event_name: provider,
+      event_starts_at_raw: provider,
+      bouts: provider,
+    },
+    conflicts: [],
+  }
+}
+
 interface HtmlElementSlice {
   openingTag: string
   innerHtml: string
@@ -195,6 +226,56 @@ function ufcMarkupPreview(html: string): CardFetchResult | null {
   })
 }
 
+function tapologyMarkupPreview(html: string): CardFetchResult | null {
+  const markup = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  const fightElements = [
+    ...elementsByClass(markup, 'fightCardBout'),
+    ...elementsByClass(markup, 'fightCard'),
+  ]
+  const seen = new Set<string>()
+  const bouts = fightElements.flatMap((fight, index) => {
+    const nameElements = elementsByClass(
+      fight.innerHtml,
+      'fightCardFighterName',
+    )
+    const names = nameElements
+      .map((element) => textFromHtml(element.innerHtml))
+      .filter(Boolean)
+    if (names.length < 2) return []
+    const fighterA = names[0] as string
+    const fighterB = names[1] as string
+    const key = `${fighterA.toLocaleLowerCase()}|${fighterB.toLocaleLowerCase()}`
+    if (seen.has(key)) return []
+    seen.add(key)
+    const odds = elementsByClass(fight.innerHtml, 'fightOdds')
+      .map(
+        (element) =>
+          textFromHtml(element.innerHtml).match(/[+-]\d{2,5}|\d+\.\d+/)?.[0] ??
+          null,
+      )
+      .filter((value): value is string => Boolean(value))
+    return [
+      {
+        fighter_a: fighterA,
+        fighter_b: fighterB,
+        fighter_a_odds_raw: odds[0] ?? null,
+        fighter_b_odds_raw: odds[1] ?? null,
+        weight_class: null,
+        bout_order: null,
+        is_main_event: index === 0 ? true : null,
+      },
+    ]
+  })
+  if (bouts.length === 0) return null
+  return cardFetchSchema.parse({
+    event_name: pageTitle(markup),
+    event_starts_at_raw: null,
+    bouts: bouts.map((bout, index) => ({ ...bout, bout_order: index + 1 })),
+  })
+}
+
 function objectValues(value: unknown): unknown[] {
   if (Array.isArray(value)) return value.flatMap(objectValues)
   if (!value || typeof value !== 'object') return []
@@ -285,22 +366,34 @@ export async function fetchCardPreview(
   env: Bindings,
   rawUrl: string,
   configurationOverride?: ProviderConfiguration | null,
-): Promise<CardFetchResult> {
+): Promise<CardPagePreview> {
   const url = new URL(rawUrl)
-  if (url.protocol !== 'https:' || !/(^|\.)ufc\.com$/i.test(url.hostname)) {
-    throw new Error('Only HTTPS UFC.com event pages are allowed')
+  const provider = providerForUrl(url)
+  if (!provider) {
+    throw new Error('Only HTTPS UFC.com or Tapology event pages are allowed')
   }
   const response = await fetch(url, {
     headers: { 'User-Agent': 'UFC Bet Synthesiser/1.0' },
     redirect: 'follow',
+    signal: AbortSignal.timeout(12_000),
   })
+  const responseUrl = new URL(response.url || url.toString())
+  if (providerForUrl(responseUrl) !== provider) {
+    throw new Error('The event page redirected to an unsupported host')
+  }
   if (!response.ok)
-    throw new Error(`UFC event page returned HTTP ${response.status}`)
+    throw new Error(`Event page returned HTTP ${response.status}`)
+  const contentLength = Number(response.headers.get('content-length') ?? 0)
+  if (contentLength > 2_000_000) throw new Error('Event page is too large')
   const html = await response.text()
-  const markup = ufcMarkupPreview(html)
-  if (markup) return markup
+  if (html.length > 2_000_000) throw new Error('Event page is too large')
+  const markup =
+    provider === 'ufc' ? ufcMarkupPreview(html) : tapologyMarkupPreview(html)
+  if (markup)
+    return withPreviewMetadata(markup, provider, responseUrl.toString())
   const structured = structuredPreview(html)
-  if (structured) return structured
+  if (structured)
+    return withPreviewMetadata(structured, provider, responseUrl.toString())
 
   const configuration =
     configurationOverride ?? providerConfigurationFromEnv(env)
@@ -325,5 +418,103 @@ export async function fetchCardPreview(
     },
     configuration,
   )
-  return result.data
+  return withPreviewMetadata(result.data, provider, responseUrl.toString())
+}
+
+function providerForUrl(url: URL): CardPageProvider | null {
+  if (url.protocol !== 'https:') return null
+  const hostname = url.hostname.toLowerCase()
+  if (hostname === 'ufc.com' || hostname === 'www.ufc.com') return 'ufc'
+  if (hostname === 'tapology.com' || hostname === 'www.tapology.com')
+    return 'tapology'
+  return null
+}
+
+function eventLinks(html: string, pageUrl: URL, provider: CardPageProvider) {
+  const links = [...html.matchAll(/href=["']([^"']+)["']/gi)]
+    .map((match) => {
+      try {
+        return new URL(match[1] ?? '', pageUrl)
+      } catch {
+        return null
+      }
+    })
+    .filter((url): url is URL => Boolean(url))
+    .filter((url) => providerForUrl(url) === provider)
+    .filter((url) =>
+      provider === 'ufc'
+        ? /^\/event\//i.test(url.pathname)
+        : /^\/fightcenter\/events\//i.test(url.pathname),
+    )
+  return [...new Map(links.map((url) => [url.toString(), url])).values()].slice(
+    0,
+    8,
+  )
+}
+
+export async function discoverNextCardPreview(
+  env: Bindings,
+  configurationOverride?: ProviderConfiguration | null,
+): Promise<CardPagePreview> {
+  const discoveryPages: Array<{
+    provider: CardPageProvider
+    url: string
+  }> = [
+    { provider: 'ufc', url: 'https://www.ufc.com/events' },
+    {
+      provider: 'tapology',
+      url: 'https://www.tapology.com/fightcenter?group=ufc',
+    },
+  ]
+  const errors: string[] = []
+  for (const discovery of discoveryPages) {
+    try {
+      const pageUrl = new URL(discovery.url)
+      const response = await fetch(pageUrl, {
+        headers: { 'User-Agent': 'UFC Bet Synthesiser/1.0' },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(12_000),
+      })
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const html = await response.text()
+      if (html.length > 2_000_000) throw new Error('listing page is too large')
+      const candidates = eventLinks(html, pageUrl, discovery.provider)
+      const previews: CardPagePreview[] = []
+      for (const candidate of candidates) {
+        try {
+          previews.push(
+            await fetchCardPreview(
+              env,
+              candidate.toString(),
+              configurationOverride,
+            ),
+          )
+        } catch {
+          // A listing can contain past or non-event links; try the next item.
+        }
+      }
+      const now = Date.now()
+      const upcoming = previews
+        .map((preview) => ({
+          preview,
+          startsAt: preview.event_starts_at_raw
+            ? Date.parse(preview.event_starts_at_raw)
+            : Number.NaN,
+        }))
+        .filter(
+          (item) => Number.isFinite(item.startsAt) && item.startsAt >= now,
+        )
+        .sort((left, right) => left.startsAt - right.startsAt)[0]?.preview
+      if (upcoming) return upcoming
+      if (previews[0]) return previews[0]
+      throw new Error('no event links could be parsed')
+    } catch (error) {
+      errors.push(
+        `${discovery.provider}: ${error instanceof Error ? error.message : 'discovery failed'}`,
+      )
+    }
+  }
+  throw new Error(
+    `Automatic event discovery was unavailable. Enter a UFC.com or Tapology URL manually. ${errors.join('; ')}`,
+  )
 }

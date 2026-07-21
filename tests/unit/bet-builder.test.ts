@@ -43,10 +43,16 @@ describe('manual bet builder', () => {
       buildBetSelection(fight(false), 'fighter-a', 'inside_distance'),
     ).toEqual({
       marketType: 'prop',
+      method: null,
+      round: null,
+      lineValue: 'inside_distance',
       selectionText: 'Tommy McMillen Inside the Distance',
     })
     expect(buildBetSelection(fight(false), 'fighter-a', 'round_3')).toEqual({
       marketType: 'round',
+      method: null,
+      round: '3',
+      lineValue: null,
       selectionText: 'Tommy McMillen in Round 3',
     })
   })

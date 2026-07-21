@@ -43,6 +43,14 @@ export interface Alias {
 }
 
 export interface CardFetchPreview {
+  provider: 'ufc' | 'tapology'
+  source_url: string
+  field_provenance: {
+    event_name: 'ufc' | 'tapology'
+    event_starts_at_raw: 'ufc' | 'tapology'
+    bouts: 'ufc' | 'tapology'
+  }
+  conflicts: string[]
   event_name: string | null
   event_starts_at_raw: string | null
   bouts: Array<{
@@ -91,6 +99,9 @@ export interface FightOutcome {
     'ko_tko' | 'submission' | 'decision' | 'disqualification' | 'other' | null
   round: '1' | '2' | '3' | '4' | '5' | null
   recordedAt: string | null
+  sourceProvider: 'ufc' | 'tapology' | null
+  sourceUrl: string | null
+  fetchedAt: string | null
   updatedAt: string
 }
 
@@ -124,6 +135,8 @@ export interface MarketPrice {
   decimalOdds: string
   capturedAt: string
   source: 'manual' | 'api'
+  sourceProvider: 'ufc' | 'tapology' | null
+  sourceUrl: string | null
 }
 
 export interface ExtractionRun {
@@ -218,6 +231,11 @@ export interface Bet {
   origin: 'synthesised' | 'manual'
   tier: 'core' | 'value' | 'parlay' | 'manual'
   marketType: string
+  fightId: string | null
+  selectionFighterId: string | null
+  method: string | null
+  round: string | null
+  lineValue: string | null
   selectionText: string
   recommendedUnits: string | null
   recommendedOdds: string | null
@@ -235,8 +253,98 @@ export interface Bet {
     fightId: string
     marketType: string
     selectionFighterId: string | null
+    method: string | null
+    round: string | null
+    lineValue: string | null
     selectionText: string
     legResult: 'pending' | 'won' | 'lost' | 'push' | 'void'
+  }>
+}
+
+export interface CardSourceLink {
+  id: string
+  cardId: string
+  provider: 'ufc' | 'tapology'
+  url: string
+  lastCheckedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type WorkflowStageState =
+  | 'not_started'
+  | 'in_progress'
+  | 'needs_attention'
+  | 'ready'
+  | 'waiting'
+  | 'complete'
+
+export interface WorkflowStageStatus {
+  state: WorkflowStageState
+  summary: string
+  blockers: string[]
+  counts: Record<string, number>
+  stale: boolean
+}
+
+export interface CardWorkflowStatus {
+  cardId: string
+  stages: Record<
+    'event' | 'tipperPicks' | 'recommendations' | 'myBets' | 'results',
+    WorkflowStageStatus
+  >
+}
+
+export interface TipCsvPreview {
+  rows: Array<{
+    rowNumber: number
+    capper: string
+    fight: string
+    selection: string
+    market: string
+    line: string | null
+    confidence: 'lean' | 'solid' | 'lock'
+    odds: string | null
+    stakeUnits: number | null
+    reasoning: string
+    sourceUrl: string | null
+    fightId: string | null
+    selectionFighterId: string | null
+    normalizedSelection: string
+    willCreateCapper: boolean
+    issues: string[]
+  }>
+  errors: Array<{ rowNumber: number; message: string }>
+  canAccept: boolean
+}
+
+export interface ResultsPreview {
+  provider: 'ufc' | 'tapology'
+  sourceUrl: string
+  outcomes: Array<{
+    fightId: string
+    fightLabel: string
+    status: Exclude<FightOutcome['status'], 'pending'>
+    winnerFighterId: string | null
+    method: FightOutcome['method']
+    round: FightOutcome['round']
+    sourceProvider: 'ufc' | 'tapology'
+    sourceUrl: string
+    issues: string[]
+  }>
+  unmatched: string[]
+  conflicts: string[]
+  betProposals: Array<{
+    betId: string
+    result: 'won' | 'lost' | 'push' | 'void' | null
+    reason: string
+    requiresManualReview: boolean
+    legProposals: Array<{
+      legId: string
+      result: 'won' | 'lost' | 'push' | 'void' | null
+      reason: string
+      requiresManualReview: boolean
+    }>
   }>
 }
 
@@ -326,6 +434,126 @@ export async function fetchCardPreview(url: string): Promise<CardFetchPreview> {
       true,
     )
   ).preview
+}
+
+export async function discoverCardPreview(): Promise<CardFetchPreview> {
+  return (
+    await requestJson<{ preview: CardFetchPreview }>(
+      '/api/cards/discover-preview',
+      { method: 'POST' },
+      true,
+    )
+  ).preview
+}
+
+export async function getCardSourceLinks(
+  cardId: string,
+): Promise<CardSourceLink[]> {
+  return (
+    await requestJson<{ links: CardSourceLink[] }>(
+      `/api/cards/${encodeURIComponent(cardId)}/source-links`,
+    )
+  ).links
+}
+
+export async function putCardSourceLink(
+  cardId: string,
+  provider: CardSourceLink['provider'],
+  url: string,
+): Promise<CardSourceLink> {
+  return (
+    await requestJson<{ link: CardSourceLink }>(
+      `/api/cards/${encodeURIComponent(cardId)}/source-links/${provider}`,
+      { method: 'PUT', body: JSON.stringify({ url }) },
+    )
+  ).link
+}
+
+export async function getCardWorkflowStatus(
+  cardId: string,
+): Promise<CardWorkflowStatus> {
+  return (
+    await requestJson<{ workflow: CardWorkflowStatus }>(
+      `/api/cards/${encodeURIComponent(cardId)}/workflow-status`,
+    )
+  ).workflow
+}
+
+export async function previewTipCsv(
+  cardId: string,
+  csv: string,
+): Promise<TipCsvPreview> {
+  return (
+    await requestJson<{ preview: TipCsvPreview }>(
+      `/api/cards/${encodeURIComponent(cardId)}/tip-csv/preview`,
+      { method: 'POST', body: JSON.stringify({ csv }) },
+    )
+  ).preview
+}
+
+export async function importTipCsv(
+  cardId: string,
+  csv: string,
+): Promise<{ importedTips: number; extractionRunIds: string[] }> {
+  return requestJson(
+    `/api/cards/${encodeURIComponent(cardId)}/tip-csv/import`,
+    { method: 'POST', body: JSON.stringify({ csv }) },
+  )
+}
+
+export async function fetchResultsPreview(
+  cardId: string,
+): Promise<ResultsPreview> {
+  return (
+    await requestJson<{ preview: ResultsPreview }>(
+      `/api/cards/${encodeURIComponent(cardId)}/results/fetch-preview`,
+      { method: 'POST' },
+    )
+  ).preview
+}
+
+export async function applyResultsReview(
+  cardId: string,
+  input: {
+    provider: ResultsPreview['provider']
+    sourceUrl: string
+    outcomes: ResultsPreview['outcomes']
+    settlements: Array<{
+      betId: string
+      result: 'won' | 'lost' | 'push' | 'void'
+      settlementOddsInput?: string | null
+      legs?: Array<{
+        legId: string
+        result: 'won' | 'lost' | 'push' | 'void'
+      }>
+    }>
+  },
+): Promise<{ outcomesApplied: number; betsSettled: number }> {
+  return requestJson(`/api/cards/${encodeURIComponent(cardId)}/results/apply`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...input,
+      outcomes: input.outcomes.map(
+        ({
+          fightId,
+          status,
+          winnerFighterId,
+          method,
+          round,
+          sourceProvider,
+          sourceUrl,
+        }) => ({
+          fightId,
+          status,
+          winnerFighterId,
+          method,
+          round,
+          sourceProvider,
+          sourceUrl,
+        }),
+      ),
+    }),
+  })
 }
 
 export async function postCard(input: {
@@ -564,6 +792,8 @@ export async function postMarketPrice(input: {
   selectionFighterId: string
   selectionText: string
   oddsInput: string
+  sourceProvider?: 'ufc' | 'tapology' | null
+  sourceUrl?: string | null
 }): Promise<MarketPrice> {
   return (
     await requestJson<{ price: MarketPrice }>('/api/market-prices', {
@@ -709,6 +939,9 @@ export async function postManualBet(input: {
     fightId: string
     marketType: string
     selectionFighterId: string | null
+    method?: string | null
+    round?: string | null
+    lineValue?: string | null
     selectionText: string
   }>
 }): Promise<Bet> {

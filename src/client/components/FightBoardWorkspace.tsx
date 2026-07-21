@@ -5,35 +5,35 @@ import {
   Sparkles,
   Swords,
 } from 'lucide-react'
-import { type FormEvent, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   acceptSynthesis,
   getCurrentSynthesis,
-  getFightOutcomes,
   getFights,
   postSynthesis,
-  putFightOutcome,
   type Fight,
-  type FightOutcome,
   type Synthesis,
+  type WorkflowStageStatus,
 } from '../api'
 import { errorMessage, formatCardTimestamp } from '../format'
 import { useCards } from '../use-cards'
 import { CardSelect } from './CardSelect'
 import { HelpTooltip } from './HelpTooltip'
 
-export function FightBoardWorkspace() {
+export function FightBoardWorkspace({
+  readiness,
+  onReviewBets,
+}: {
+  readiness?: WorkflowStageStatus
+  onReviewBets?: () => void
+}) {
   const { cards, selectedCardId, setSelectedCardId, cardsError, cardsLoaded } =
     useCards()
   const [fights, setFights] = useState<Fight[]>([])
-  const [outcomes, setOutcomes] = useState<FightOutcome[]>([])
   const [loading, setLoading] = useState(true)
   const [synthesising, setSynthesising] = useState(false)
   const [synthesis, setSynthesis] = useState<Synthesis | null>(null)
   const [accepting, setAccepting] = useState(false)
-  const [savingOutcomeFightId, setSavingOutcomeFightId] = useState<
-    string | null
-  >(null)
   const [synthesisAccepted, setSynthesisAccepted] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -45,12 +45,10 @@ export function FightBoardWorkspace() {
     Promise.all([
       getFights(selectedCardId),
       getCurrentSynthesis(selectedCardId),
-      getFightOutcomes(selectedCardId),
     ])
-      .then(([nextFights, currentSynthesis, nextOutcomes]) => {
+      .then(([nextFights, currentSynthesis]) => {
         if (cancelled) return
         setFights(nextFights)
-        setOutcomes(nextOutcomes)
         setSynthesis(currentSynthesis)
         setSynthesisAccepted(currentSynthesis?.status === 'accepted')
       })
@@ -101,48 +99,50 @@ export function FightBoardWorkspace() {
     }
   }
 
-  const handleOutcome = async (
-    event: FormEvent<HTMLFormElement>,
-    fight: Fight,
-  ) => {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const result = String(form.get('outcomeResult') ?? 'pending')
-    const winnerFighterId = result.startsWith('winner:')
-      ? result.slice('winner:'.length)
-      : null
-    const status = (
-      winnerFighterId ? 'winner' : result
-    ) as FightOutcome['status']
-    setSavingOutcomeFightId(fight.id)
-    setError(null)
-    try {
-      const outcome = await putFightOutcome(fight.id, {
-        status,
-        winnerFighterId,
-        method:
-          status === 'winner'
-            ? (String(form.get('method') || '') as FightOutcome['method']) ||
-              null
-            : null,
-        round:
-          status === 'winner'
-            ? (String(form.get('round') || '') as FightOutcome['round']) || null
-            : null,
-      })
-      setOutcomes((current) => [
-        ...current.filter((item) => item.fightId !== fight.id),
-        outcome,
-      ])
-    } catch (requestError) {
-      setError(errorMessage(requestError, 'Fight outcome could not be saved'))
-    } finally {
-      setSavingOutcomeFightId(null)
-    }
-  }
-
   return (
     <section className="workspace-stack">
+      {readiness && (
+        <section
+          className="data-readiness-card"
+          aria-labelledby="readiness-title"
+        >
+          <div>
+            <span className="quiet-badge">Data readiness</span>
+            <h2 id="readiness-title">Review inputs before synthesis</h2>
+            <p>{readiness.summary}</p>
+          </div>
+          <dl className="readiness-counts">
+            <div>
+              <dt>Accepted cappers</dt>
+              <dd>{readiness.counts.acceptedCappers ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Reviewed tips</dt>
+              <dd>{readiness.counts.reviewedTips ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Current prices</dt>
+              <dd>{readiness.counts.fullyPricedFights ?? 0} fights</dd>
+            </div>
+            <div>
+              <dt>Open conflicts</dt>
+              <dd>{readiness.counts.openConflicts ?? 0}</dd>
+            </div>
+          </dl>
+          {readiness.stale && (
+            <span className="status-chip status-chip--warning">
+              Recommendations are stale
+            </span>
+          )}
+          {readiness.blockers.length > 0 && (
+            <ul>
+              {readiness.blockers.map((blocker) => (
+                <li key={blocker}>{blocker}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
       <div className="source-toolbar">
         <CardSelect
           cards={cards}
@@ -151,7 +151,6 @@ export function FightBoardWorkspace() {
             if (cardId === selectedCardId) return
             setLoading(true)
             setFights([])
-            setOutcomes([])
             setSynthesis(null)
             setSynthesisAccepted(false)
             setSelectedCardId(cardId)
@@ -224,11 +223,6 @@ export function FightBoardWorkspace() {
         ) : (
           <div className="fight-list">
             {fights.map((fight, index) => {
-              const outcome = outcomes.find((item) => item.fightId === fight.id)
-              const outcomeResult =
-                outcome?.status === 'winner' && outcome.winnerFighterId
-                  ? `winner:${outcome.winnerFighterId}`
-                  : (outcome?.status ?? 'pending')
               const summary = synthesis?.fightSummaries.find(
                 (item) => item.fightId === fight.id,
               )
@@ -378,63 +372,6 @@ export function FightBoardWorkspace() {
                       </div>
                     )}
                   </div>
-                  <form
-                    className="fight-outcome-form"
-                    key={`${fight.id}:${outcome?.updatedAt ?? 'new'}`}
-                    onSubmit={(event) => void handleOutcome(event, fight)}
-                  >
-                    <label>
-                      <span>Official result</span>
-                      <select name="outcomeResult" defaultValue={outcomeResult}>
-                        <option value="pending">Pending</option>
-                        <option value={`winner:${fight.fighterA.id}`}>
-                          {fight.fighterA.name} won
-                        </option>
-                        <option value={`winner:${fight.fighterB.id}`}>
-                          {fight.fighterB.name} won
-                        </option>
-                        <option value="draw">Draw</option>
-                        <option value="no_contest">No contest</option>
-                        <option value="overturned">Overturned</option>
-                        <option value="cancelled">Cancelled</option>
-                      </select>
-                    </label>
-                    <label>
-                      <span>Method</span>
-                      <select
-                        name="method"
-                        defaultValue={outcome?.method ?? ''}
-                      >
-                        <option value="">Not recorded</option>
-                        <option value="ko_tko">KO / TKO</option>
-                        <option value="submission">Submission</option>
-                        <option value="decision">Decision</option>
-                        <option value="disqualification">
-                          Disqualification
-                        </option>
-                        <option value="other">Other</option>
-                      </select>
-                    </label>
-                    <label>
-                      <span>Round</span>
-                      <select name="round" defaultValue={outcome?.round ?? ''}>
-                        <option value="">Not recorded</option>
-                        {[1, 2, 3, 4, 5].map((round) => (
-                          <option key={round} value={round}>
-                            {round}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      className="button button--secondary button--compact"
-                      disabled={savingOutcomeFightId === fight.id}
-                    >
-                      {savingOutcomeFightId === fight.id
-                        ? 'Saving'
-                        : 'Save result'}
-                    </button>
-                  </form>
                 </article>
               )
             })}
@@ -461,15 +398,19 @@ export function FightBoardWorkspace() {
             <button
               className="button button--primary button--compact"
               type="button"
-              disabled={accepting || synthesisAccepted}
-              onClick={() => void handleAcceptSynthesis()}
+              disabled={accepting}
+              onClick={() =>
+                synthesisAccepted
+                  ? onReviewBets?.()
+                  : void handleAcceptSynthesis()
+              }
             >
               {accepting ? (
                 <LoaderCircle className="spin" size={14} />
               ) : (
                 <Sparkles size={14} />
               )}
-              {synthesisAccepted ? 'Accepted to ledger' : 'Accept draft'}
+              {synthesisAccepted ? 'Review my bets' : 'Accept draft'}
             </button>
           </div>
           {synthesis.bets.length === 0 ? (

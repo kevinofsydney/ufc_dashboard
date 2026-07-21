@@ -15,6 +15,8 @@ export interface MarketPriceRecord {
   decimalOdds: string
   capturedAt: string
   source: 'manual' | 'api'
+  sourceProvider: 'ufc' | 'tapology' | null
+  sourceUrl: string | null
   createdAt: string
   updatedAt: string
 }
@@ -33,6 +35,8 @@ interface MarketPriceRow {
   decimal_odds: string
   captured_at: string
   source: 'manual' | 'api'
+  source_provider: 'ufc' | 'tapology' | null
+  source_url: string | null
   created_at: string
   updated_at: string
 }
@@ -52,6 +56,8 @@ function mapMarketPrice(row: MarketPriceRow): MarketPriceRecord {
     decimalOdds: row.decimal_odds,
     capturedAt: row.captured_at,
     source: row.source,
+    sourceProvider: row.source_provider,
+    sourceUrl: row.source_url,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
@@ -63,6 +69,7 @@ const selectMarketPrices = `
          market_prices.selection_fighter_id, selection.canonical_name AS selection_fighter_name,
          market_prices.selection_text, market_prices.decimal_odds,
          market_prices.captured_at, market_prices.source,
+         market_prices.source_provider, market_prices.source_url,
          market_prices.created_at, market_prices.updated_at,
          participant_a.display_name_snapshot AS fighter_a_name,
          participant_b.display_name_snapshot AS fighter_b_name
@@ -123,6 +130,8 @@ export async function createMarketPrice(
     selectionText: string
     decimalOdds: string
     capturedAt?: string
+    sourceProvider?: 'ufc' | 'tapology' | null
+    sourceUrl?: string | null
   },
 ): Promise<MarketPriceRecord> {
   const participant = await db
@@ -150,8 +159,9 @@ export async function createMarketPrice(
       `INSERT INTO market_prices (
          id, card_id, fight_id, bookmaker, market_type,
          selection_fighter_id, method, round, line_value, selection_text,
-         decimal_odds, captured_at, source, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, 'manual', ?, ?)`,
+         decimal_odds, captured_at, source, source_provider, source_url,
+         created_at, updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, 'manual', ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -163,6 +173,8 @@ export async function createMarketPrice(
       input.selectionText,
       input.decimalOdds,
       capturedAt,
+      input.sourceProvider ?? null,
+      input.sourceUrl ?? null,
       now,
       now,
     )

@@ -177,6 +177,9 @@ export function LedgerWorkspace() {
                 marketType: selection.marketType,
                 selectionFighterId: leg.selectionFighterId,
                 selectionText: selection.selectionText,
+                method: selection.method,
+                round: selection.round,
+                lineValue: selection.lineValue,
               },
             ]
           : []
@@ -199,6 +202,9 @@ export function LedgerWorkspace() {
                   marketType: singlePick.marketType,
                   selectionFighterId: manualFighterId,
                   selectionText: singlePick.selectionText,
+                  method: singlePick.method,
+                  round: singlePick.round,
+                  lineValue: singlePick.lineValue,
                 },
               ]
             : []

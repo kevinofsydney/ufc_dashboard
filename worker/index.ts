@@ -18,6 +18,10 @@ import {
   updateCard,
 } from '../src/server/repositories/cards'
 import {
+  listCardSourceLinks,
+  putCardSourceLink,
+} from '../src/server/repositories/card-source-links'
+import {
   createManualBet,
   listAnalyticsBets,
   listBets,
@@ -61,7 +65,17 @@ import {
 import { acceptExtraction } from '../src/server/services/accept-extraction'
 import { parseSource } from '../src/server/services/parse-source'
 import { synthesiseCard } from '../src/server/services/synthesise-card'
-import { fetchCardPreview } from '../src/server/services/fetch-card'
+import {
+  discoverNextCardPreview,
+  fetchCardPreview,
+} from '../src/server/services/fetch-card'
+import { getWorkflowStatus } from '../src/server/services/workflow-status'
+import {
+  importTipCsv,
+  previewTipCsv,
+} from '../src/server/services/import-tip-csv'
+import { fetchResultsPreview } from '../src/server/services/fetch-results'
+import { applyResultsReview } from '../src/server/services/apply-results'
 import {
   exportApplicationBackup,
   restoreApplicationBackup,
@@ -268,7 +282,7 @@ app.post('/api/cards/fetch-preview', async (c) => {
     .object({ url: z.string().url().max(2_000) })
     .safeParse(await c.req.json())
   if (!parsed.success)
-    return c.json({ error: 'Enter a valid UFC event URL' }, 400)
+    return c.json({ error: 'Enter a valid UFC.com or Tapology event URL' }, 400)
   try {
     return c.json({
       preview: await fetchCardPreview(
@@ -280,6 +294,25 @@ app.post('/api/cards/fetch-preview', async (c) => {
   } catch (error) {
     return c.json(
       { error: error instanceof Error ? error.message : 'Card fetch failed' },
+      422,
+    )
+  }
+})
+
+app.post('/api/cards/discover-preview', async (c) => {
+  try {
+    return c.json({
+      preview: await discoverNextCardPreview(
+        c.env,
+        providerConfigurationFromRequest(c.req.raw, c.env),
+      ),
+    })
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : 'Event discovery failed',
+      },
       422,
     )
   }
@@ -343,6 +376,211 @@ app.delete('/api/cards/:cardId', async (c) => {
       return c.json({ error: error.message }, 404)
     }
     throw error
+  }
+})
+
+app.get('/api/cards/:cardId/source-links', async (c) =>
+  c.json({
+    links: await listCardSourceLinks(c.env.DB, c.req.param('cardId')),
+  }),
+)
+
+app.put('/api/cards/:cardId/source-links/:provider', async (c) => {
+  const parsed = z
+    .object({ url: z.string().url().max(2_000) })
+    .safeParse(await c.req.json())
+  const provider = z
+    .enum(['ufc', 'tapology'])
+    .safeParse(c.req.param('provider'))
+  if (!parsed.success || !provider.success)
+    return c.json({ error: 'Invalid event source link' }, 400)
+  try {
+    const expectedHosts =
+      provider.data === 'ufc'
+        ? ['ufc.com', 'www.ufc.com']
+        : ['tapology.com', 'www.tapology.com']
+    const url = new URL(parsed.data.url)
+    if (
+      url.protocol !== 'https:' ||
+      !expectedHosts.includes(url.hostname.toLowerCase())
+    )
+      return c.json(
+        {
+          error: `Enter an HTTPS ${provider.data === 'ufc' ? 'UFC.com' : 'Tapology'} URL`,
+        },
+        400,
+      )
+    return c.json({
+      link: await putCardSourceLink(
+        c.env.DB,
+        c.req.param('cardId'),
+        provider.data,
+        url.toString(),
+        c.get('accessIdentity').email,
+      ),
+    })
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Source link could not be saved',
+      },
+      422,
+    )
+  }
+})
+
+app.get('/api/cards/:cardId/workflow-status', async (c) => {
+  try {
+    return c.json({
+      workflow: await getWorkflowStatus(c.env.DB, c.req.param('cardId')),
+    })
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : 'Workflow status failed',
+      },
+      404,
+    )
+  }
+})
+
+const tipCsvSchema = z.object({
+  csv: z.string().min(1).max(250_000),
+})
+
+app.post('/api/cards/:cardId/tip-csv/preview', async (c) => {
+  const parsed = tipCsvSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid tip CSV' }, 400)
+  try {
+    return c.json({
+      preview: await previewTipCsv(
+        c.env.DB,
+        c.req.param('cardId'),
+        parsed.data.csv,
+      ),
+    })
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : 'Tip CSV preview failed',
+      },
+      422,
+    )
+  }
+})
+
+app.post('/api/cards/:cardId/tip-csv/import', async (c) => {
+  const parsed = tipCsvSchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid tip CSV' }, 400)
+  try {
+    return c.json(
+      await importTipCsv(
+        c.env,
+        c.req.param('cardId'),
+        parsed.data.csv,
+        c.get('accessIdentity').email,
+      ),
+      201,
+    )
+  } catch (error) {
+    return c.json(
+      {
+        error: error instanceof Error ? error.message : 'Tip CSV import failed',
+      },
+      422,
+    )
+  }
+})
+
+app.post('/api/cards/:cardId/results/fetch-preview', async (c) => {
+  try {
+    return c.json({
+      preview: await fetchResultsPreview(c.env.DB, c.req.param('cardId')),
+    })
+  } catch (error) {
+    return c.json(
+      { error: error instanceof Error ? error.message : 'Result fetch failed' },
+      422,
+    )
+  }
+})
+
+const resultsApplySchema = z.object({
+  provider: z.enum(['ufc', 'tapology']),
+  sourceUrl: z.string().url().max(2_000),
+  outcomes: z
+    .array(
+      z.object({
+        fightId: z.string().min(1),
+        status: z.enum([
+          'winner',
+          'draw',
+          'no_contest',
+          'overturned',
+          'cancelled',
+        ]),
+        winnerFighterId: z.string().min(1).nullable(),
+        method: z
+          .enum([
+            'ko_tko',
+            'submission',
+            'decision',
+            'disqualification',
+            'other',
+          ])
+          .nullable(),
+        round: z.enum(['1', '2', '3', '4', '5']).nullable(),
+        sourceProvider: z.enum(['ufc', 'tapology']).optional(),
+        sourceUrl: z.string().url().max(2_000).optional(),
+      }),
+    )
+    .max(100),
+  settlements: z
+    .array(
+      z.object({
+        betId: z.string().min(1),
+        result: z.enum(['won', 'lost', 'push', 'void']),
+        settlementOddsInput: z.string().trim().max(40).nullable().optional(),
+        legs: z
+          .array(
+            z.object({
+              legId: z.string().min(1),
+              result: z.enum(['won', 'lost', 'push', 'void']),
+            }),
+          )
+          .max(20)
+          .optional(),
+      }),
+    )
+    .max(200),
+})
+
+app.post('/api/cards/:cardId/results/apply', async (c) => {
+  const parsed = resultsApplySchema.safeParse(await c.req.json())
+  if (!parsed.success) return c.json({ error: 'Invalid results review' }, 400)
+  try {
+    return c.json(
+      await applyResultsReview(c.env.DB, {
+        cardId: c.req.param('cardId'),
+        ...parsed.data,
+        actorEmail: c.get('accessIdentity').email,
+      }),
+    )
+  } catch (error) {
+    return c.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Results could not be applied',
+      },
+      422,
+    )
   }
 })
 
@@ -779,6 +1017,8 @@ const createMarketPriceSchema = z.object({
   selectionText: z.string().trim().min(1).max(240),
   oddsInput: z.string().trim().min(1).max(40),
   capturedAt: z.string().datetime().optional(),
+  sourceProvider: z.enum(['ufc', 'tapology']).nullable().optional(),
+  sourceUrl: z.string().url().max(2_000).nullable().optional(),
 })
 
 app.post('/api/market-prices', async (c) => {
@@ -801,6 +1041,26 @@ app.post('/api/market-prices', async (c) => {
       { error: error instanceof Error ? error.message : 'Invalid odds' },
       400,
     )
+  }
+
+  if (parsed.data.sourceProvider || parsed.data.sourceUrl) {
+    if (!parsed.data.sourceProvider || !parsed.data.sourceUrl) {
+      return c.json(
+        { error: 'Price provenance requires provider and URL' },
+        400,
+      )
+    }
+    const sourceUrl = new URL(parsed.data.sourceUrl)
+    const expectedHosts =
+      parsed.data.sourceProvider === 'ufc'
+        ? ['ufc.com', 'www.ufc.com']
+        : ['tapology.com', 'www.tapology.com']
+    if (
+      sourceUrl.protocol !== 'https:' ||
+      !expectedHosts.includes(sourceUrl.hostname.toLowerCase())
+    ) {
+      return c.json({ error: 'Invalid price provenance URL' }, 400)
+    }
   }
 
   try {
@@ -893,6 +1153,12 @@ const manualBetSchema = z
           fightId: z.string().min(1).max(120),
           marketType: z.string().trim().min(1).max(80),
           selectionFighterId: z.string().min(1).max(120).nullable(),
+          method: z
+            .enum(['ko_tko', 'submission', 'decision'])
+            .nullable()
+            .optional(),
+          round: z.enum(['1', '2', '3', '4', '5']).nullable().optional(),
+          lineValue: z.string().trim().max(120).nullable().optional(),
           selectionText: z.string().trim().min(1).max(240),
         }),
       )

@@ -1,12 +1,22 @@
 import { expect, test } from '@playwright/test'
 
-test('persists theme and desktop sidebar preferences', async ({ page }) => {
+test('persists theme and selected-event workflow navigation', async ({
+  page,
+}) => {
+  const auditId = Date.now()
+  const cardResponse = await page.request.post('/api/cards', {
+    data: {
+      name: `Navigation card ${auditId}`,
+      eventStartsAtUtc: '2026-07-26T02:00:00.000Z',
+      budgetUnits: 30,
+      unitValueCents: 1000,
+    },
+  })
+  const card = ((await cardResponse.json()) as { card: { id: string } }).card
   await page.emulateMedia({ colorScheme: 'light' })
-  await page.goto('/')
+  await page.goto(`/?card=${card.id}&step=event`)
   await page.evaluate(() => {
     window.localStorage.removeItem('fightfolio.theme.v1')
-    window.localStorage.removeItem('fightfolio.sidebar-collapsed.v1')
-    window.localStorage.removeItem('fightfolio.narrow-view.v1')
   })
   await page.reload()
 
@@ -14,97 +24,61 @@ test('persists theme and desktop sidebar preferences', async ({ page }) => {
   await page.getByRole('button', { name: 'Switch to dark mode' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
 
-  await page.getByRole('button', { name: 'Use mobile-width layout' }).click()
-  await expect(page.locator('.app-shell')).toHaveClass(/app-shell--narrow-view/)
-
-  await page.getByRole('button', { name: 'Collapse sidebar' }).click()
-  await expect(page.locator('.app-shell')).toHaveClass(
-    /app-shell--sidebar-collapsed/,
-  )
-  await expect(page.getByRole('button', { name: 'Cards' })).toBeVisible()
+  await expect(page.getByLabel('Active event')).toHaveValue(card.id)
+  await page.getByRole('button', { name: 'Results', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`card=${card.id}.*step=results`))
+  await page.getByRole('button', { name: 'My bets', exact: true }).click()
+  await page.goBack()
+  await expect(
+    page.getByRole('heading', { name: 'Results & settlement' }),
+  ).toBeFocused()
 
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  await expect(page.locator('.app-shell')).toHaveClass(
-    /app-shell--sidebar-collapsed/,
-  )
-  await expect(page.locator('.app-shell')).toHaveClass(/app-shell--narrow-view/)
-
-  await page.getByRole('button', { name: 'Expand sidebar' }).click()
-  await page.getByRole('button', { name: 'Use desktop layout' }).click()
+  await expect(page.getByLabel('Active event')).toHaveValue(card.id)
+  await expect(
+    page.getByRole('button', { name: 'Results', exact: true }),
+  ).toHaveAttribute('aria-current', 'step')
   await page.getByRole('button', { name: 'Switch to light mode' }).click()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
-  await expect(page.locator('.app-shell')).not.toHaveClass(
-    /app-shell--sidebar-collapsed/,
-  )
-  await expect(page.locator('.app-shell')).not.toHaveClass(
-    /app-shell--narrow-view/,
-  )
 })
 
-test('keeps every workspace inside a phone viewport', async ({ page }) => {
+test('keeps the horizontal workflow and utilities inside a phone viewport', async ({
+  page,
+}) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
 
-  const workspaces = [
-    'How to',
-    'Cards',
-    'Fight board',
-    'Sources',
-    'Odds board',
-    'Bet ledger',
-    'Bankroll',
-    'Settings',
+  const workflowSteps = [
+    'Event',
+    'Tipper picks',
+    'Recommendations',
+    'My bets',
+    'Results',
   ]
 
-  for (const workspace of workspaces) {
-    await page.getByRole('button', { name: 'Open navigation' }).click()
-    await page
-      .locator('#application-sidebar')
-      .getByRole('button', { name: workspace, exact: true })
-      .click()
-    await expect(
-      page.getByRole('heading', { name: workspace, exact: true, level: 1 }),
-    ).toBeVisible()
-    if (workspace === 'Sources') {
-      const mobileCsv = [
-        'channel_name,video_id,video_title,video_url,part_number,part_count,transcript_text',
-        'Mobile Channel,mobile-video,Mobile CSV preview,https://youtube.test/watch?v=mobile-video,1,1,Transcript text',
-      ].join('\n')
-      await page.getByLabel('Transcript CSV file').setInputFiles({
-        name: 'mobile-transcripts.csv',
-        mimeType: 'text/csv',
-        buffer: Buffer.from(mobileCsv),
-      })
-      await expect(
-        page.getByText('Mobile CSV preview', { exact: true }),
-      ).toBeVisible()
-    }
-    const overflowingElements = await page
-      .locator('body *')
-      .evaluateAll((elements) =>
-        elements
-          .filter((element) => {
-            const style = window.getComputedStyle(element)
-            const bounds = element.getBoundingClientRect()
-            return (
-              style.display !== 'none' &&
-              style.visibility !== 'hidden' &&
-              bounds.width > 0 &&
-              bounds.right > window.innerWidth + 1
-            )
-          })
-          .map((element) => {
-            const bounds = element.getBoundingClientRect()
-            return {
-              tag: element.tagName.toLowerCase(),
-              className: element.className,
-              right: Math.round(bounds.right),
-              width: Math.round(bounds.width),
-            }
-          }),
-      )
-    expect(overflowingElements, `${workspace} overflowed`).toEqual([])
+  for (const step of workflowSteps) {
+    await page.getByRole('button', { name: step, exact: true }).click()
+    await expect(page.getByText(/Step \d of 5/).first()).toBeVisible()
+    const dimensions = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }))
+    expect(dimensions.scrollWidth, `${step} overflowed`).toBeLessThanOrEqual(
+      dimensions.clientWidth + 1,
+    )
+  }
+
+  for (const utility of ['Help', 'Performance', 'Settings']) {
+    await page.getByRole('button', { name: 'Open global navigation' }).click()
+    await page.getByRole('button', { name: utility, exact: true }).click()
+    const dimensions = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }))
+    expect(dimensions.scrollWidth, `${utility} overflowed`).toBeLessThanOrEqual(
+      dimensions.clientWidth + 1,
+    )
   }
 })
 
@@ -118,7 +92,7 @@ test('creates a card and opens its persisted fight workspace', async ({
 
   await expect(
     page.getByText(
-      'Review the consensus and supporting evidence for every fight.',
+      'Synthesise accepted evidence and current prices into a reviewable slate.',
       { exact: false },
     ),
   ).toBeVisible()
@@ -126,7 +100,7 @@ test('creates a card and opens its persisted fight workspace', async ({
     page.getByRole('button', { name: 'Help: Fight board', exact: true }),
   ).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'How to' }).click()
+  await page.getByRole('button', { name: 'Help', exact: true }).click()
   await expect(
     page.getByRole('heading', {
       name: 'From event page to placed-bet checklist',
@@ -173,7 +147,7 @@ test('creates a card and opens its persisted fight workspace', async ({
     page.getByText('Bankroll and default unit size saved.'),
   ).toBeVisible()
   await page.reload()
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByLabel('Current bankroll')).toHaveValue('123.45')
   await expect(page.getByLabel('Default unit size')).toHaveValue('7.50')
   await page.getByLabel('Current bankroll').fill(originalBankroll)
@@ -190,7 +164,7 @@ test('creates a card and opens its persisted fight workspace', async ({
   await page.getByRole('button', { name: 'Save connection' }).click()
   await expect(page.getByText('Configured for this tab')).toBeVisible()
   await page.reload()
-  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(page.getByLabel('OpenRouter API key')).toHaveValue(
     'test-session-key',
   )
@@ -205,11 +179,14 @@ test('creates a card and opens its persisted fight workspace', async ({
     .getByRole('button', { name: 'Remove saved model test/model' })
     .click()
 
-  await page.getByRole('button', { name: 'Cards' }).click()
+  await page.locator('.app-brand').click()
   const cardSetup = page.locator('details').filter({
     has: page.getByRole('heading', { name: 'Create or update a card' }),
   })
-  const cardsSectionBox = await page.locator('.records-card').boundingBox()
+  const cardsSectionBox = await page
+    .locator('section.records-card')
+    .filter({ has: page.getByRole('heading', { name: 'Your cards' }) })
+    .boundingBox()
   const cardSetupBox = await cardSetup.boundingBox()
   expect(cardsSectionBox).not.toBeNull()
   expect(cardSetupBox).not.toBeNull()
@@ -364,14 +341,14 @@ test('creates a card and opens its persisted fight workspace', async ({
     transcriptMatching.getByText('E2E Alpha transcription', { exact: false }),
   ).toBeVisible()
 
-  await page.getByRole('button', { name: 'Sources' }).click()
-  const sourceSteps = page.locator('.sources-step')
-  await expect(sourceSteps).toHaveCount(4)
+  await page.getByRole('button', { name: 'Tipper picks', exact: true }).click()
+  const sourceSteps = page.locator('.sources-step:visible')
+  await expect(sourceSteps).toHaveCount(3)
   await expect(
     page.getByRole('heading', {
       name: 'Choose the card you are researching',
     }),
-  ).toBeVisible()
+  ).not.toBeVisible()
   await expect(
     page.getByRole('heading', {
       name: 'Add cappers and alternate names',
@@ -392,7 +369,7 @@ test('creates a card and opens its persisted fight workspace', async ({
       'Only this action makes the evidence available to synthesis.',
     ),
   ).toBeVisible()
-  await page.getByLabel('Working card').selectOption({ label: uniqueName })
+  await page.getByLabel('Active event').selectOption({ label: uniqueName })
 
   const csvVideoId = `csv-${auditId}`
   const csvTitle = `E2E CSV Transcript ${auditId}`
@@ -471,8 +448,8 @@ test('creates a card and opens its persisted fight workspace', async ({
     page.getByText('The request could not be completed'),
   ).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Odds board' }).click()
-  await page.getByLabel('Working card').selectOption({ label: uniqueName })
+  await page.locator('.app-brand').click()
+  await page.getByLabel('Active event').selectOption({ label: uniqueName })
   await page
     .getByRole('combobox', { name: 'Fight' })
     .selectOption({ label: 'E2E Fighter Alpha vs E2E Fighter Beta' })
@@ -492,38 +469,40 @@ test('creates a card and opens its persisted fight workspace', async ({
   await priceRow.getByRole('button', { name: 'Hide snapshot' }).click()
   await expect(priceRow).not.toBeVisible()
 
-  await page.getByRole('button', { name: 'Fight board' }).click()
-  await page.getByLabel('Working card').selectOption({ label: uniqueName })
+  await page.getByRole('button', { name: 'Results', exact: true }).click()
+  await page.getByLabel('Active event').selectOption({ label: uniqueName })
   await expect(
-    page.getByText('E2E Fighter Alpha', { exact: true }),
+    page.getByText('E2E Fighter Alpha vs E2E Fighter Beta'),
   ).toBeVisible()
   const alphaFight = page
-    .locator('.fight-board-card')
+    .locator('.result-fight-row')
     .filter({ hasText: 'E2E Fighter Alpha' })
+  await alphaFight.getByLabel('Official result').selectOption('winner')
   await alphaFight
-    .getByLabel('Official result')
-    .selectOption({ label: 'E2E Fighter Alpha won' })
+    .locator('select[name="winnerFighterId"]')
+    .selectOption({ label: 'E2E Fighter Alpha' })
   await alphaFight.getByLabel('Method').selectOption('decision')
   await alphaFight.getByLabel('Round').selectOption('3')
   await alphaFight.getByRole('button', { name: 'Save result' }).click()
 
-  await page.getByRole('button', { name: 'Cards' }).click()
-  await page.getByRole('button', { name: 'Fight board' }).click()
-  await page.getByLabel('Working card').selectOption({ label: uniqueName })
-  await expect(
-    page.getByText('E2E Fighter Alpha', { exact: true }),
-  ).toBeVisible()
+  await page.getByRole('button', { name: 'Event', exact: true }).click()
+  await page.getByRole('button', { name: 'Results', exact: true }).click()
+  await page.getByLabel('Active event').selectOption({ label: uniqueName })
   const persistedAlphaFight = page
-    .locator('.fight-board-card')
+    .locator('.result-fight-row')
     .filter({ hasText: 'E2E Fighter Alpha' })
+  await expect(persistedAlphaFight).toBeVisible()
   await expect(persistedAlphaFight.getByLabel('Official result')).toHaveValue(
-    /winner:/,
+    'winner',
   )
+  await expect(
+    persistedAlphaFight.locator('select[name="winnerFighterId"]'),
+  ).toHaveValue(/.+/)
   await expect(persistedAlphaFight.getByLabel('Method')).toHaveValue('decision')
   await expect(persistedAlphaFight.getByLabel('Round')).toHaveValue('3')
 
-  await page.getByRole('button', { name: 'Bet ledger' }).click()
-  await page.getByLabel('Working card').selectOption({ label: uniqueName })
+  await page.getByRole('button', { name: 'My bets', exact: true }).click()
+  await page.getByLabel('Active event').selectOption({ label: uniqueName })
   const fighterSelect = page.getByRole('combobox', {
     name: 'Fighter',
     exact: true,
@@ -632,8 +611,8 @@ test('creates a card and opens its persisted fight workspace', async ({
   await expect(parlay).toContainText('E2E Fighter Gamma')
 
   await page.reload()
-  await page.getByRole('button', { name: 'Bet ledger' }).click()
-  await page.getByLabel('Working card').selectOption({ label: uniqueName })
+  await page.getByRole('button', { name: 'My bets', exact: true }).click()
+  await page.getByLabel('Active event').selectOption({ label: uniqueName })
   const persistedParlay = page
     .locator('.ledger-row')
     .filter({ hasText: 'E2E Fighter Alpha ML + E2E Fighter Gamma ML' })
@@ -649,7 +628,7 @@ test('creates a card and opens its persisted fight workspace', async ({
   await persistedParlay.getByRole('button', { name: 'Settle' }).click()
   await expect(persistedParlay).toContainText('WON')
 
-  await page.getByRole('button', { name: 'Bankroll' }).click()
+  await page.getByRole('button', { name: 'Performance', exact: true }).click()
   await expect(
     page.getByRole('heading', { name: 'Capper accuracy' }),
   ).toBeVisible()
@@ -662,7 +641,7 @@ test('creates a card and opens its persisted fight workspace', async ({
     /^ufc-bet-synthesiser-\d{4}-\d{2}-\d{2}\.json$/,
   )
 
-  await page.getByRole('button', { name: 'Cards' }).click()
+  await page.locator('.app-brand').click()
   const cardRow = page.locator('.record-row').filter({ hasText: uniqueName })
   await cardRow
     .getByRole('button', { name: `Show ${uniqueName} fights` })

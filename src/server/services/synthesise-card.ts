@@ -638,11 +638,12 @@ export async function synthesiseCard(
       env.DB.prepare(
         `INSERT INTO bets (
            id, card_id, synthesis_run_id, origin, tier, market_type,
+           fight_id, selection_fighter_id, method, round, line_value,
            selection_text, recommended_units, recommended_odds,
            consensus_share, rationale, state, odds_taken, settlement_odds,
            stake_units, result, net_profit_units, settled_at, notes,
            created_at, updated_at
-         ) VALUES (?, ?, ?, 'synthesised', ?, ?, ?, ?, ?, ?, ?,
+         ) VALUES (?, ?, ?, 'synthesised', ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?,
                    'recommended', NULL, NULL, NULL, 'pending', NULL, NULL, NULL, ?, ?)`,
       ).bind(
         betId,
@@ -650,6 +651,8 @@ export async function synthesiseCard(
         id,
         bet.tier,
         bet.marketType,
+        bet.fightId,
+        bet.selectionFighterId,
         bet.selectionText,
         bet.units.toFixed(2),
         bet.decimalOdds.toFixed(4),

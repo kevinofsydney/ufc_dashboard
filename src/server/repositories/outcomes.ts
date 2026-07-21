@@ -12,6 +12,9 @@ export interface FightOutcomeRecord {
     'ko_tko' | 'submission' | 'decision' | 'disqualification' | 'other' | null
   round: '1' | '2' | '3' | '4' | '5' | null
   recordedAt: string | null
+  sourceProvider: 'ufc' | 'tapology' | null
+  sourceUrl: string | null
+  fetchedAt: string | null
   updatedAt: string
 }
 
@@ -22,6 +25,9 @@ interface FightOutcomeRow {
   method: FightOutcomeRecord['method']
   round: FightOutcomeRecord['round']
   recorded_at: string | null
+  source_provider: FightOutcomeRecord['sourceProvider']
+  source_url: string | null
+  fetched_at: string | null
   updated_at: string
 }
 
@@ -33,6 +39,9 @@ function mapOutcome(row: FightOutcomeRow): FightOutcomeRecord {
     method: row.method,
     round: row.round,
     recordedAt: row.recorded_at,
+    sourceProvider: row.source_provider,
+    sourceUrl: row.source_url,
+    fetchedAt: row.fetched_at,
     updatedAt: row.updated_at,
   }
 }
@@ -46,6 +55,8 @@ export async function listFightOutcomes(
       `SELECT fight_outcomes.fight_id, fight_outcomes.status,
               fight_outcomes.winner_fighter_id, fight_outcomes.method,
               fight_outcomes.round, fight_outcomes.recorded_at,
+              fight_outcomes.source_provider, fight_outcomes.source_url,
+              fight_outcomes.fetched_at,
               fight_outcomes.updated_at
        FROM fight_outcomes
        INNER JOIN fights ON fights.id = fight_outcomes.fight_id
@@ -60,7 +71,10 @@ export async function listFightOutcomes(
 export async function recordFightOutcome(
   db: Bindings['DB'],
   fightId: string,
-  input: Omit<FightOutcomeRecord, 'fightId' | 'recordedAt' | 'updatedAt'>,
+  input: Pick<
+    FightOutcomeRecord,
+    'status' | 'winnerFighterId' | 'method' | 'round'
+  >,
   actorEmail: string,
 ): Promise<FightOutcomeRecord> {
   const fight = await db
@@ -121,7 +135,7 @@ export async function recordFightOutcome(
   const row = await db
     .prepare(
       `SELECT fight_id, status, winner_fighter_id, method, round,
-              recorded_at, updated_at
+              recorded_at, source_provider, source_url, fetched_at, updated_at
        FROM fight_outcomes WHERE fight_id = ?`,
     )
     .bind(fightId)

@@ -35,6 +35,7 @@ import {
   saveTheme,
   type Theme,
 } from './ui-preferences'
+import WorkflowApp from './WorkflowApp'
 
 type NavItem =
   | 'Cards'
@@ -102,7 +103,7 @@ const settingsNavItem = {
     'Set your current bankroll and default unit size, then configure the language model used for extraction and summaries. Browser-entered API keys stay in this tab and are not saved to the database.',
 }
 
-function App() {
+export function LegacyApp() {
   const [activeNav, setActiveNav] = useState<NavItem>('Fight board')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(getInitialTheme)
@@ -297,4 +298,4 @@ function App() {
   )
 }
 
-export default App
+export default WorkflowApp

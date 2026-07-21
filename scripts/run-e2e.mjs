@@ -95,7 +95,11 @@ try {
   await waitForServer()
   const testProcess = spawn(
     process.execPath,
-    [resolve(projectRoot, 'node_modules/@playwright/test/cli.js'), 'test'],
+    [
+      resolve(projectRoot, 'node_modules/@playwright/test/cli.js'),
+      'test',
+      ...process.argv.slice(2),
+    ],
     {
       cwd: projectRoot,
       env: {

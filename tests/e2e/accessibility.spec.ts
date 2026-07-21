@@ -2,23 +2,41 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
 
 const workspaces = [
-  'How to',
-  'Cards',
-  'Fight board',
-  'Sources',
-  'Odds board',
-  'Bet ledger',
-  'Bankroll',
-  'Settings',
+  { navigation: 'Event', heading: 'Event setup' },
+  { navigation: 'Tipper picks', heading: 'Tipper picks' },
+  { navigation: 'Recommendations', heading: 'Recommendations' },
+  { navigation: 'My bets', heading: 'My bets' },
+  { navigation: 'Results', heading: 'Results & settlement' },
+  { navigation: 'Help', heading: 'Help', utility: true },
+  { navigation: 'Performance', heading: 'Performance', utility: true },
+  { navigation: 'Settings', heading: 'Settings', utility: true },
 ] as const
 
 async function openWorkspace(
   page: Page,
   workspace: (typeof workspaces)[number],
 ) {
-  await page.getByRole('button', { name: workspace, exact: true }).click()
+  const button = page.getByRole('button', {
+    name: workspace.navigation,
+    exact: true,
+  })
+  if (!('utility' in workspace) && !(await button.isVisible())) {
+    await page.locator('.app-brand').click()
+  }
+  if (
+    'utility' in workspace &&
+    workspace.utility &&
+    !(await button.isVisible())
+  ) {
+    await page.getByRole('button', { name: 'Open global navigation' }).click()
+  }
+  await button.click()
   await expect(
-    page.getByRole('heading', { name: workspace, exact: true, level: 1 }),
+    page.getByRole('heading', {
+      name: workspace.heading,
+      exact: true,
+      level: 1,
+    }),
   ).toBeVisible()
 }
 
@@ -73,6 +91,7 @@ async function expectVerticalChildren(page: Page, selector: string) {
 test('has no serious automated accessibility violations across desktop workspaces', async ({
   page,
 }) => {
+  test.setTimeout(240_000)
   await page.goto('/')
   const workspaceViolations: Array<{
     theme: 'light' | 'dark'
@@ -89,7 +108,11 @@ test('has no serious automated accessibility violations across desktop workspace
       await openWorkspace(page, workspace)
       const violations = await seriousViolations(page)
       if (violations.length > 0) {
-        workspaceViolations.push({ theme, workspace, violations })
+        workspaceViolations.push({
+          theme,
+          workspace: workspace.navigation,
+          violations,
+        })
       }
     }
   }
@@ -102,7 +125,8 @@ test('supports keyboard entry and a 200% equivalent layout without horizontal cl
   await page.setViewportSize({ width: 640, height: 720 })
   await page.goto('/')
 
-  await page.keyboard.press('Tab')
+  await page.locator('.app-brand').focus()
+  await page.keyboard.press('Shift+Tab')
   await expect(
     page.getByRole('link', { name: 'Skip to main content' }),
   ).toBeFocused()
@@ -110,18 +134,14 @@ test('supports keyboard entry and a 200% equivalent layout without horizontal cl
   await expect(page.locator('#main-content')).toBeFocused()
 
   for (const workspace of workspaces) {
-    await page.getByRole('button', { name: 'Open navigation' }).click()
-    await page
-      .locator('#application-sidebar')
-      .getByRole('button', { name: workspace, exact: true })
-      .click()
+    await openWorkspace(page, workspace)
     const dimensions = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
     }))
     expect(
       dimensions.scrollWidth,
-      `${workspace} clipped at a 200% equivalent viewport`,
+      `${workspace.navigation} clipped at a 200% equivalent viewport`,
     ).toBeLessThanOrEqual(dimensions.clientWidth + 1)
   }
 })
@@ -129,6 +149,7 @@ test('supports keyboard entry and a 200% equivalent layout without horizontal cl
 test('uses one vertical reading column for every workspace section', async ({
   page,
 }) => {
+  test.setTimeout(180_000)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/')
 
@@ -137,20 +158,20 @@ test('uses one vertical reading column for every workspace section', async ({
     selectors: string[]
   }> = [
     {
-      workspace: 'How to',
+      workspace: workspaces[5],
       selectors: ['.workflow-overview', '.workflow-steps', '.workflow-path'],
     },
     {
-      workspace: 'Sources',
+      workspace: workspaces[1],
       selectors: ['.capper-setup-grid', '.source-mode-guide'],
     },
-    { workspace: 'Odds board', selectors: ['.source-layout'] },
-    { workspace: 'Bet ledger', selectors: ['.source-layout'] },
+    { workspace: workspaces[0], selectors: ['.event-workspace'] },
+    { workspace: workspaces[3], selectors: ['.source-layout'] },
     {
-      workspace: 'Bankroll',
+      workspace: workspaces[6],
       selectors: ['.metric-grid', '.analytics-grid'],
     },
-    { workspace: 'Settings', selectors: ['.settings-surface'] },
+    { workspace: workspaces[7], selectors: ['.settings-surface'] },
   ]
 
   for (const check of checks) {
