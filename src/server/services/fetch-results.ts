@@ -37,7 +37,7 @@ export interface ResultsPreview {
   betProposals: BetResolutionProposal[]
 }
 
-interface ParsedResultRow {
+export interface ParsedResultRow {
   fighterA: string
   fighterB: string
   winner: string | null
@@ -90,7 +90,7 @@ function normalizeMethod(raw: string | null): ImportedFightOutcome['method'] {
   return 'other'
 }
 
-function parseUfcResultRows(html: string): ParsedResultRow[] {
+export function parseUfcResultRows(html: string): ParsedResultRow[] {
   const starts = [
     ...html.matchAll(
       /<[^>]+class=["'][^"']*c-listing-fight\b[^"']*["'][^>]*>/gi,
@@ -106,13 +106,24 @@ function parseUfcResultRows(html: string): ParsedResultRow[] {
     if (!fighterA || !fighterB) return []
     const redOutcome = classText(chunk, 'c-listing-fight__outcome--red')
     const blueOutcome = classText(chunk, 'c-listing-fight__outcome--blue')
+    const outcomeStates = [
+      ...chunk.matchAll(/c-listing-fight__outcome--(win|loss)\b/gi),
+    ].map((match) => match[1]?.toLocaleLowerCase())
     const winner = /win/i.test(redOutcome ?? '')
       ? fighterA
       : /win/i.test(blueOutcome ?? '')
         ? fighterB
-        : null
-    const method = classText(chunk, 'c-listing-fight__result-text')
-    const roundRaw = classText(chunk, 'c-listing-fight__result-round')
+        : outcomeStates[0] === 'win'
+          ? fighterA
+          : outcomeStates[1] === 'win'
+            ? fighterB
+            : null
+    const method =
+      classText(chunk, 'c-listing-fight__result-text method') ??
+      classText(chunk, 'c-listing-fight__result-text')
+    const roundRaw =
+      classText(chunk, 'c-listing-fight__result-text round') ??
+      classText(chunk, 'c-listing-fight__result-round')
     const status = /no contest/i.test(method ?? '')
       ? 'no_contest'
       : /draw/i.test(method ?? '')
