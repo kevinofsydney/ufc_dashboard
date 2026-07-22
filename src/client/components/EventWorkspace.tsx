@@ -15,6 +15,7 @@ import {
   type CardSourceLink,
 } from '../api'
 import { importCardPreview, importsOddsByDefault } from '../import-preview'
+import { needsMelbourneStartConfirmation } from '../event-time'
 import { EVENT_PROVIDERS, PROVIDER_LABELS } from '../../shared/providers'
 import { errorMessage } from '../format'
 import { useCards } from '../use-cards'
@@ -38,6 +39,7 @@ export function EventWorkspace() {
   const [discovering, setDiscovering] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importOdds, setImportOdds] = useState(false)
+  const [confirmedMelbourneStart, setConfirmedMelbourneStart] = useState('')
   const [unitValueCents, setUnitValueCents] = useState(1000)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -77,6 +79,7 @@ export function EventWorkspace() {
     discoverCardPreview()
       .then((preview) => {
         setImportOdds(importsOddsByDefault(preview.provider))
+        setConfirmedMelbourneStart('')
         setDiscovery(preview)
       })
       .catch((requestError: unknown) =>
@@ -93,6 +96,7 @@ export function EventWorkspace() {
     try {
       const preview = await discoverCardPreview()
       setImportOdds(importsOddsByDefault(preview.provider))
+      setConfirmedMelbourneStart('')
       setDiscovery(preview)
     } catch (requestError) {
       setMessage(
@@ -111,6 +115,7 @@ export function EventWorkspace() {
       const { card, pricesComplete } = await importCardPreview(discovery, {
         unitValueCents,
         importOdds,
+        confirmedMelbourneStart,
       })
       setCards((current) => [card, ...current])
       setSelectedCardId(card.id)
@@ -207,6 +212,29 @@ export function EventWorkspace() {
                 {warning}
               </p>
             ))}
+            {needsMelbourneStartConfirmation(
+              discovery.event_starts_at_raw,
+              discovery.provider,
+            ) && (
+              <label className="field field--wide">
+                <span>Event start in Melbourne</span>
+                <input
+                  type="datetime-local"
+                  required
+                  value={confirmedMelbourneStart}
+                  onChange={(event) =>
+                    setConfirmedMelbourneStart(event.target.value)
+                  }
+                />
+                <small>
+                  {discovery.event_starts_at_raw
+                    ? `The source only supplies ${discovery.event_starts_at_raw} in the event’s local calendar.`
+                    : 'The source does not supply an event date or time.'}{' '}
+                  Confirm the actual Melbourne date and time; daylight saving is
+                  applied automatically.
+                </small>
+              </label>
+            )}
             {discovery.bouts.some(
               (bout) => bout.fighter_a_odds_raw || bout.fighter_b_odds_raw,
             ) && (
@@ -232,7 +260,12 @@ export function EventWorkspace() {
                 disabled={
                   !discovery.event_name ||
                   importing ||
-                  discovery.conflicts.length > 0
+                  discovery.conflicts.length > 0 ||
+                  (needsMelbourneStartConfirmation(
+                    discovery.event_starts_at_raw,
+                    discovery.provider,
+                  ) &&
+                    !confirmedMelbourneStart)
                 }
                 onClick={() => void handleImportDiscovery()}
               >

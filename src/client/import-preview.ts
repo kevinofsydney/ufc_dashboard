@@ -8,6 +8,7 @@ import {
   type Fight,
 } from './api'
 import { PROVIDER_LABELS, type EventProvider } from '../shared/providers'
+import { previewEventStartsAtUtc } from './event-time'
 
 /**
  * BetMMA quotes one aggregated best-available price rather than a named book's
@@ -99,19 +100,18 @@ export async function importCardPreview(
     unitValueCents: number
     importOdds: boolean
     budgetUnits?: number
+    confirmedMelbourneStart?: string
   },
 ): Promise<ImportPreviewResult> {
   if (!preview.event_name)
     throw new Error('The preview has no event name to import')
-  const parsedDate = preview.event_starts_at_raw
-    ? new Date(preview.event_starts_at_raw)
-    : null
   const card = await postCard({
     name: preview.event_name,
-    eventStartsAtUtc:
-      parsedDate && !Number.isNaN(parsedDate.getTime())
-        ? parsedDate.toISOString()
-        : null,
+    eventStartsAtUtc: previewEventStartsAtUtc(
+      preview.event_starts_at_raw,
+      options.confirmedMelbourneStart,
+      preview.provider,
+    ),
     budgetUnits: options.budgetUnits ?? 30,
     unitValueCents: options.unitValueCents,
   })

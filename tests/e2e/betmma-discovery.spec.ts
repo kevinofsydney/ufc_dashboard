@@ -27,7 +27,7 @@ test('discovers the BetMMA card and imports it with its prices in one click', as
     },
     conflicts: [],
     warnings: [
-      'BetMMA publishes the event date but not its start time, and does not mark women’s divisions. Set the start time and confirm weight classes on the card after importing.',
+      'BetMMA publishes the event date but not its start time, and does not mark women’s divisions. Confirm the Melbourne start date and time before importing, and confirm weight classes on the card afterward.',
     ],
     event_name: eventName,
     event_starts_at_raw: '2026-07-25',
@@ -64,13 +64,18 @@ test('discovers the BetMMA card and imports it with its prices in one click', as
   await expect(page.getByText('2 bouts found · 2 fully priced')).toBeVisible()
   await expect(page.getByText(/does not mark women’s divisions/)).toBeVisible()
 
+  const importButton = page.getByRole('button', { name: 'Import as new card' })
+  await expect(importButton).toBeDisabled()
+  await page.getByLabel('Event start in Melbourne').fill('2026-07-26T12:00')
+  await expect(importButton).toBeEnabled()
+
   // BetMMA prices both sides of every bout, so the import is opted in already.
   const oddsToggle = page.getByRole('checkbox', {
     name: /Import BetMMA moneylines/,
   })
   await expect(oddsToggle).toBeChecked()
 
-  await page.getByRole('button', { name: 'Import as new card' }).click()
+  await importButton.click()
   // Wait for the confirmation, not the preview: the preview repeats the event
   // name and bout count, so a looser matcher would pass mid-import.
   await expect(page.getByText(/imported with 2 bouts/)).toBeVisible()
@@ -84,6 +89,7 @@ test('discovers the BetMMA card and imports it with its prices in one click', as
   const imported = cards.find((card) => card.name === eventName)
   expect(imported).toBeDefined()
   const cardId = (imported as Card).id
+  expect((imported as Card).eventStartsAtUtc).toBe('2026-07-26T02:00:00.000Z')
 
   const fights = (
     (await (await page.request.get(`/api/fights?cardId=${cardId}`)).json()) as {

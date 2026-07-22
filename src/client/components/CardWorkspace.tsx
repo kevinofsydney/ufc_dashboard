@@ -32,6 +32,7 @@ import {
   importCardPreview,
   importsOddsByDefault,
 } from '../import-preview'
+import { needsMelbourneStartConfirmation } from '../event-time'
 import { PROVIDER_LABELS } from '../../shared/providers'
 import { errorMessage } from '../format'
 import { useCards } from '../use-cards'
@@ -87,6 +88,7 @@ export function CardWorkspace() {
   const [fetchingCard, setFetchingCard] = useState(false)
   const [createUnitValue, setCreateUnitValue] = useState('10.00')
   const [importPreviewOdds, setImportPreviewOdds] = useState(false)
+  const [confirmedMelbourneStart, setConfirmedMelbourneStart] = useState('')
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -193,6 +195,7 @@ export function CardWorkspace() {
     try {
       const preview = await fetchCardPreview(String(form.get('eventUrl') ?? ''))
       setImportPreviewOdds(importsOddsByDefault(preview.provider))
+      setConfirmedMelbourneStart('')
       setFetchPreview(preview)
     } catch (requestError) {
       setError(errorMessage(requestError, 'Event preview failed'))
@@ -213,6 +216,7 @@ export function CardWorkspace() {
       } = await importCardPreview(fetchPreview, {
         unitValueCents: Math.round(Number(createUnitValue) * 100),
         importOdds: importPreviewOdds,
+        confirmedMelbourneStart,
       })
       setCards((current) => [card, ...current])
       setSelectedCardId(card.id)
@@ -695,6 +699,29 @@ export function CardWorkspace() {
                     {warning}
                   </p>
                 ))}
+                {needsMelbourneStartConfirmation(
+                  fetchPreview.event_starts_at_raw,
+                  fetchPreview.provider,
+                ) && (
+                  <label className="field field--wide">
+                    <span>Event start in Melbourne</span>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={confirmedMelbourneStart}
+                      onChange={(event) =>
+                        setConfirmedMelbourneStart(event.target.value)
+                      }
+                    />
+                    <small>
+                      {fetchPreview.event_starts_at_raw
+                        ? `The source only supplies ${fetchPreview.event_starts_at_raw} in the event’s local calendar.`
+                        : 'The source does not supply an event date or time.'}{' '}
+                      Confirm the actual Melbourne date and time; daylight
+                      saving is applied automatically.
+                    </small>
+                  </label>
+                )}
                 <ol>
                   {previewDiff.bouts.map((bout) => (
                     <li key={`${bout.fighter_a}-${bout.fighter_b}`}>
@@ -763,7 +790,12 @@ export function CardWorkspace() {
                     disabled={
                       !fetchPreview.event_name ||
                       fetchingCard ||
-                      fetchPreview.conflicts.length > 0
+                      fetchPreview.conflicts.length > 0 ||
+                      (needsMelbourneStartConfirmation(
+                        fetchPreview.event_starts_at_raw,
+                        fetchPreview.provider,
+                      ) &&
+                        !confirmedMelbourneStart)
                     }
                     onClick={() => void handleImportPreview()}
                   >

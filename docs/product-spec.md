@@ -606,7 +606,7 @@ paired with Previous/Next actions.
 - Per-page fetch order is BetMMA/UFC.com/Tapology deterministic markup → JSON-LD structured data → LLM fallback → manual entry.
 - Only exact HTTPS BetMMA, UFC.com and Tapology hosts are allowed. Redirects are revalidated and fetches have time and response-size limits.
 - BetMMA is an event and price source only. It publishes no completed results, so it is never consulted for settlement and its saved links are skipped by the results fetcher.
-- BetMMA states a weight limit rather than a division and never marks women's divisions, and it publishes an event date without a start time. Its previews carry non-blocking warnings for both, plus a warning when the stated fight weight contradicts both fighters' listed weights.
+- BetMMA states a weight limit rather than a division and never marks women's divisions, and it publishes a venue-local event date without a start time. Its previews carry non-blocking warnings for both, plus a warning when the stated fight weight contradicts both fighters' listed weights. Import requires the owner to confirm the Melbourne date and time, which is converted to UTC with the applicable AEST/AEDT offset.
 - The fetched result is always a preview diff, never an automatic overwrite.
 - Previews expose provider, source URL, field provenance, additions, removals, replacements, order changes, odds coverage and source conflicts. UFC wins agreement; fighter/order/result disagreements block application.
 - When the page explicitly displays fighter moneyline odds, preserve them as raw text in the preview. The LLM does not convert them.

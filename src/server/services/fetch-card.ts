@@ -473,7 +473,7 @@ function betmmaMarkupPreview(html: string): MarkupPreview | null {
     )
   }
   warnings.push(
-    'BetMMA publishes the event date but not its start time, and does not mark women’s divisions. Set the start time and confirm weight classes on the card after importing.',
+    'BetMMA publishes the event date but not its start time, and does not mark women’s divisions. Confirm the Melbourne start date and time before importing, and confirm weight classes on the card afterward.',
   )
   return {
     preview: cardFetchSchema.parse({

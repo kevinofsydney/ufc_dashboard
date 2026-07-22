@@ -1,6 +1,6 @@
 # Implementation status
 
-Updated: 21 July 2026
+Updated: 22 July 2026
 
 ## Executive status
 
@@ -64,6 +64,9 @@ Status terms used below:
 - A discovered preview can be imported as a new card in one action from Event,
   with BetMMA's prices opted in by default and recorded as
   `BetMMA best available` aggregated reference snapshots.
+- Because BetMMA supplies a venue-local date without a start time, its import
+  requires the owner to confirm the Melbourne date and time and converts that
+  wall-clock value to UTC using the applicable AEST/AEDT offset.
 - BetMMA/UFC/Tapology card previews carry provider, source URL, field provenance,
   conflicts, non-blocking warnings, bout changes/order, and odds coverage.
   Fetches enforce exact HTTPS host allowlists, redirect revalidation, timeouts,
@@ -158,20 +161,21 @@ Status terms used below:
 
 ## Current local verification
 
-The most recent local checks on 21 July 2026 produced:
+The most recent local checks on 22 July 2026 produced:
 
 - `npm.cmd run typecheck`: passed.
 - `npm.cmd run lint`: passed.
 - `npm.cmd run format:check`: passed repository-wide.
-- `npm.cmd test`: 145 tests across 21 unit and isolated-D1 integration files passed.
-- `npm.cmd run test:e2e`: seven Chromium journeys passed.
+- `npm.cmd test`: 154 tests across 22 unit and isolated-D1 integration files passed.
+- `npm.cmd run test:e2e`: eight Chromium journeys passed.
 - `npm.cmd run build`: Worker and client production bundles passed.
 
 The automated coverage proves selected-event and theme persistence, direct stage
 navigation, layout containment, odds conversion, consensus/allocation
 boundaries, model validation/retry contracts, card-fetch SSRF restrictions,
-deterministic UFC and Tapology markup extraction, structured-tip CSV validation
-and evidence-only odds, exact card identity mapping, one-vote-per-capper
+deterministic BetMMA, UFC and Tapology markup extraction, Melbourne
+date/time confirmation and UTC conversion, structured-tip CSV validation and
+evidence-only odds, exact card identity mapping, one-vote-per-capper
 consensus, backup validation, and generated parse/review/accept/synthesis
 behavior. It also covers changed picks, hedges, explicit no-bets, ambiguous
 names, aggregator attribution, missing tracker data, prompt-injection-like source
