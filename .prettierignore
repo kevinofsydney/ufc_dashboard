@@ -7,5 +7,6 @@ coverage/
 .localappdata/
 .claude/
 migrations/
+tests/fixtures/*.html
 *.sarif
 

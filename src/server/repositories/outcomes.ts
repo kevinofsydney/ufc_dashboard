@@ -1,3 +1,4 @@
+import type { ResultsProvider } from '../../shared/providers'
 import type { Bindings } from '../env'
 import { auditEvent } from './audit'
 
@@ -12,7 +13,7 @@ export interface FightOutcomeRecord {
     'ko_tko' | 'submission' | 'decision' | 'disqualification' | 'other' | null
   round: '1' | '2' | '3' | '4' | '5' | null
   recordedAt: string | null
-  sourceProvider: 'ufc' | 'tapology' | null
+  sourceProvider: ResultsProvider | null
   sourceUrl: string | null
   fetchedAt: string | null
   updatedAt: string

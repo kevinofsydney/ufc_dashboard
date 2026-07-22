@@ -1,4 +1,5 @@
 import cardFetchPrompt from '../../../prompts/card-fetch.md?raw'
+import { providerForUrl, type EventProvider } from '../../shared/providers'
 import {
   cardFetchSchema,
   type CardFetchResult,
@@ -8,7 +9,7 @@ import { callModel } from '../llm/call-model'
 import { providerConfigurationFromEnv } from '../llm/configuration'
 import type { ProviderConfiguration } from '../llm/provider'
 
-export type CardPageProvider = 'ufc' | 'tapology'
+export type CardPageProvider = EventProvider
 
 export interface CardPagePreview extends CardFetchResult {
   provider: CardPageProvider
@@ -18,13 +19,26 @@ export interface CardPagePreview extends CardFetchResult {
     event_starts_at_raw: CardPageProvider
     bouts: CardPageProvider
   }
+  /** Blocks import in the review UI. */
   conflicts: string[]
+  /** Surfaced for review but never blocks import. */
+  warnings: string[]
+}
+
+interface MarkupPreview {
+  preview: CardFetchResult
+  warnings: string[]
+}
+
+function plainMarkup(preview: CardFetchResult | null): MarkupPreview | null {
+  return preview ? { preview, warnings: [] } : null
 }
 
 function withPreviewMetadata(
   preview: CardFetchResult,
   provider: CardPageProvider,
   sourceUrl: string,
+  warnings: string[] = [],
 ): CardPagePreview {
   return {
     ...preview,
@@ -36,6 +50,7 @@ function withPreviewMetadata(
       bouts: provider,
     },
     conflicts: [],
+    warnings,
   }
 }
 
@@ -111,6 +126,48 @@ function elementsByClass(html: string, className: string): HtmlElementSlice[] {
     openings.lastIndex = element.end
   }
   return elements
+}
+
+function elementsByAttribute(
+  html: string,
+  tagName: string,
+  attribute: string,
+  value: string,
+): HtmlElementSlice[] {
+  const elements: HtmlElementSlice[] = []
+  const openings = new RegExp(`<${escapeRegExp(tagName)}\\b[^>]*>`, 'gi')
+  let match: RegExpExecArray | null
+  while ((match = openings.exec(html))) {
+    const openingTag = match[0]
+    if (attributeValue(openingTag, attribute) !== value) continue
+    const element = balancedElement(
+      html,
+      tagName,
+      openings.lastIndex,
+      openingTag,
+    )
+    if (!element) continue
+    elements.push(element)
+    openings.lastIndex = element.end
+  }
+  return elements
+}
+
+/**
+ * Direct children only. BetMMA nests a whole table inside the odds row, so a
+ * document-wide scan for `td` would descend into it.
+ */
+function childElements(html: string, tagName: string): HtmlElementSlice[] {
+  const children: HtmlElementSlice[] = []
+  const openings = new RegExp(`<${escapeRegExp(tagName)}\\b[^>]*>`, 'gi')
+  let match: RegExpExecArray | null
+  while ((match = openings.exec(html))) {
+    const element = balancedElement(html, tagName, openings.lastIndex, match[0])
+    if (!element) continue
+    children.push(element)
+    openings.lastIndex = element.end
+  }
+  return children
 }
 
 function decodeHtml(value: string): string {
@@ -276,6 +333,158 @@ function tapologyMarkupPreview(html: string): CardFetchResult | null {
   })
 }
 
+/**
+ * BetMMA publishes a weight limit rather than a division name, and never states
+ * whether a bout is a women's division, so these are the men's names only.
+ */
+const BETMMA_WEIGHT_CLASSES: Record<string, string> = {
+  '115': 'Strawweight',
+  '125': 'Flyweight',
+  '135': 'Bantamweight',
+  '145': 'Featherweight',
+  '155': 'Lightweight',
+  '170': 'Welterweight',
+  '185': 'Middleweight',
+  '205': 'Light Heavyweight',
+  '265': 'Heavyweight',
+}
+
+const MONTHS = [
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'may',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'oct',
+  'nov',
+  'dec',
+]
+
+const BETMMA_FIGHT_ANCHOR = /ufc_betting_advice\.php\?[^'"]*?Fight=\d+/i
+const BETMMA_FIGHTER_LINK = /fighter_profile\.php\?[^'"]*?['"][^>]*>([^<]+)</gi
+const BETMMA_ODDS = /^@?(\d+(?:\.\d+)?)$/
+
+function betmmaEventName(markup: string): string | null {
+  const heading = markup.match(/<h3\b[^>]*>([\s\S]*?)<\/h3>/i)?.[1]
+  const fromHeading = heading
+    ? textFromHtml(heading).replace(/^The Next UFC Event is:\s*/i, '')
+    : null
+  if (fromHeading) return fromHeading
+  return pageTitle(markup)?.replace(/^Next UFC Event:\s*/i, '') || null
+}
+
+/**
+ * BetMMA states the date in prose and never publishes a start time, so this
+ * normalises to a date-only ISO string the card importer can parse.
+ */
+function betmmaEventDate(markup: string): string | null {
+  const match = textFromHtml(markup).match(
+    /takes place in [^.]*? on (\d{1,2})(?:st|nd|rd|th)\s+([A-Za-z]{3})[a-z]*\s+(\d{4})/i,
+  )
+  if (!match) return null
+  const month = MONTHS.indexOf((match[2] as string).toLowerCase())
+  if (month < 0) return null
+  return `${match[3]}-${String(month + 1).padStart(2, '0')}-${(match[1] as string).padStart(2, '0')}`
+}
+
+function betmmaBoutOdds(blockHtml: string): [string | null, string | null] {
+  for (const row of childElements(blockHtml, 'tr')) {
+    const cells = childElements(row.innerHtml, 'td')
+    if (cells.length < 2) continue
+    const first = textFromHtml((cells[0] as HtmlElementSlice).innerHtml)
+    const last = textFromHtml(
+      (cells[cells.length - 1] as HtmlElementSlice).innerHtml,
+    )
+    const fighterA = first.match(BETMMA_ODDS)?.[1] ?? null
+    const fighterB = last.match(BETMMA_ODDS)?.[1] ?? null
+    if (fighterA || fighterB) return [fighterA, fighterB]
+  }
+  return [null, null]
+}
+
+function betmmaMarkupPreview(html: string): MarkupPreview | null {
+  const markup = html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+  const blocks = elementsByAttribute(markup, 'table', 'cellspacing', '5')
+  const warnings: string[] = []
+  let skipped = 0
+
+  const bouts = blocks.flatMap((block, index) => {
+    // The "vs" link separates the two fighters and is the only reliable way to
+    // tell them apart from the last-fight opponents, which use the same
+    // fighter_profile.php URL further down the block.
+    const separatorAt = block.innerHtml.match(BETMMA_FIGHT_ANCHOR)?.index
+    if (separatorAt === undefined) {
+      skipped += 1
+      return []
+    }
+    const links = [...block.innerHtml.matchAll(BETMMA_FIGHTER_LINK)]
+    const before = links.filter((link) => link.index < separatorAt)
+    const after = links.filter((link) => link.index > separatorAt)
+    const fighterA = textFromHtml(before[before.length - 1]?.[1] ?? '')
+    const fighterB = textFromHtml(after[0]?.[1] ?? '')
+    if (!fighterA || !fighterB) {
+      skipped += 1
+      return []
+    }
+
+    const [fighterAOdds, fighterBOdds] = betmmaBoutOdds(block.innerHtml)
+    const fightWeight = block.innerHtml.match(
+      /Fight Weight:\s*(\d+)\s*lbs/i,
+    )?.[1]
+    const listed = block.innerHtml.match(
+      /(\d+(?:\.\d+)?)\s*lbs\s*<strong\b[^>]*>\s*Weight\s*<\/strong>\s*(\d+(?:\.\d+)?)\s*lbs/i,
+    )
+    if (
+      fightWeight &&
+      listed &&
+      listed[1] === listed[2] &&
+      listed[1] !== fightWeight
+    ) {
+      warnings.push(
+        `BetMMA lists ${fighterA} vs ${fighterB} as a ${fightWeight}lbs fight, but gives both fighters a weight of ${listed[1]}lbs. Confirm the weight class before synthesis.`,
+      )
+    }
+
+    return [
+      {
+        fighter_a: fighterA,
+        fighter_b: fighterB,
+        fighter_a_odds_raw: fighterAOdds,
+        fighter_b_odds_raw: fighterBOdds,
+        weight_class: fightWeight
+          ? (BETMMA_WEIGHT_CLASSES[fightWeight] ?? `${fightWeight}lbs`)
+          : null,
+        bout_order: index + 1,
+        is_main_event: index === 0,
+      },
+    ]
+  })
+
+  if (bouts.length === 0) return null
+  if (skipped > 0) {
+    warnings.push(
+      `${skipped} block(s) on the BetMMA page could not be read as a bout. Check the card against the source page before importing.`,
+    )
+  }
+  warnings.push(
+    'BetMMA publishes the event date but not its start time, and does not mark women’s divisions. Set the start time and confirm weight classes on the card after importing.',
+  )
+  return {
+    preview: cardFetchSchema.parse({
+      event_name: betmmaEventName(markup),
+      event_starts_at_raw: betmmaEventDate(markup),
+      bouts: bouts.map((bout, index) => ({ ...bout, bout_order: index + 1 })),
+    }),
+    warnings,
+  }
+}
+
 function objectValues(value: unknown): unknown[] {
   if (Array.isArray(value)) return value.flatMap(objectValues)
   if (!value || typeof value !== 'object') return []
@@ -370,7 +579,9 @@ export async function fetchCardPreview(
   const url = new URL(rawUrl)
   const provider = providerForUrl(url)
   if (!provider) {
-    throw new Error('Only HTTPS UFC.com or Tapology event pages are allowed')
+    throw new Error(
+      'Only HTTPS BetMMA, UFC.com or Tapology event pages are allowed',
+    )
   }
   const response = await fetch(url, {
     headers: { 'User-Agent': 'UFC Bet Synthesiser/1.0' },
@@ -388,9 +599,20 @@ export async function fetchCardPreview(
   const html = await response.text()
   if (html.length > 2_000_000) throw new Error('Event page is too large')
   const markup =
-    provider === 'ufc' ? ufcMarkupPreview(html) : tapologyMarkupPreview(html)
+    provider === 'betmma'
+      ? betmmaMarkupPreview(html)
+      : plainMarkup(
+          provider === 'ufc'
+            ? ufcMarkupPreview(html)
+            : tapologyMarkupPreview(html),
+        )
   if (markup)
-    return withPreviewMetadata(markup, provider, responseUrl.toString())
+    return withPreviewMetadata(
+      markup.preview,
+      provider,
+      responseUrl.toString(),
+      markup.warnings,
+    )
   const structured = structuredPreview(html)
   if (structured)
     return withPreviewMetadata(structured, provider, responseUrl.toString())
@@ -419,15 +641,6 @@ export async function fetchCardPreview(
     configuration,
   )
   return withPreviewMetadata(result.data, provider, responseUrl.toString())
-}
-
-function providerForUrl(url: URL): CardPageProvider | null {
-  if (url.protocol !== 'https:') return null
-  const hostname = url.hostname.toLowerCase()
-  if (hostname === 'ufc.com' || hostname === 'www.ufc.com') return 'ufc'
-  if (hostname === 'tapology.com' || hostname === 'www.tapology.com')
-    return 'tapology'
-  return null
 }
 
 function eventLinks(html: string, pageUrl: URL, provider: CardPageProvider) {
@@ -459,16 +672,28 @@ export async function discoverNextCardPreview(
   const discoveryPages: Array<{
     provider: CardPageProvider
     url: string
+    mode: 'direct' | 'crawl'
   }> = [
-    { provider: 'ufc', url: 'https://www.ufc.com/events' },
+    // BetMMA's page always describes exactly the next event and carries prices
+    // for both sides, so it needs no listing crawl.
+    {
+      provider: 'betmma',
+      url: 'https://www.betmma.tips/next_ufc_event.php',
+      mode: 'direct',
+    },
+    { provider: 'ufc', url: 'https://www.ufc.com/events', mode: 'crawl' },
     {
       provider: 'tapology',
       url: 'https://www.tapology.com/fightcenter?group=ufc',
+      mode: 'crawl',
     },
   ]
   const errors: string[] = []
   for (const discovery of discoveryPages) {
     try {
+      if (discovery.mode === 'direct') {
+        return await fetchCardPreview(env, discovery.url, configurationOverride)
+      }
       const pageUrl = new URL(discovery.url)
       const response = await fetch(pageUrl, {
         headers: { 'User-Agent': 'UFC Bet Synthesiser/1.0' },
@@ -515,6 +740,6 @@ export async function discoverNextCardPreview(
     }
   }
   throw new Error(
-    `Automatic event discovery was unavailable. Enter a UFC.com or Tapology URL manually. ${errors.join('; ')}`,
+    `Automatic event discovery was unavailable. Enter a BetMMA, UFC.com or Tapology URL manually. ${errors.join('; ')}`,
   )
 }

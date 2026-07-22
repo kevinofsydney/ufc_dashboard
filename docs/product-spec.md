@@ -578,7 +578,7 @@ applies across five revisitable, left-to-right stages. The selected card and
 stage are reflected in `card` and `step` query parameters and the last card is
 retained locally when the URL does not choose one.
 
-1. **Event.** Discover or enter the nearest upcoming UFC event, review the card and order, store UFC.com and Tapology source links, then explicitly import or enter timestamped current odds.
+1. **Event.** Discover or enter the nearest upcoming UFC event, review the card and order, store BetMMA, UFC.com and Tapology source links, then explicitly import or enter timestamped current odds.
 2. **Tipper picks.** Upload a structured tip CSV, upload an existing transcript CSV, or paste transcript/written source material. Review identity mappings and accept versioned extraction evidence.
 3. **Recommendations.** Review readiness and staleness, inspect Fight Board evidence, synthesise a deterministic draft slate, and accept it.
 4. **My bets.** Decide which recommendations were placed or skipped, record actual odds and stakes, and add structured manual singles or parlays.
@@ -600,10 +600,13 @@ paired with Previous/Next actions.
 
 - CRUD for Cards and Cappers.
 - Card deletion requires an explicit inline confirmation and is implemented as an audited soft delete so related history is preserved.
-- Create a card manually or fetch by saved UFC.com or Tapology event URL.
+- Create a card manually or fetch by saved BetMMA, UFC.com or Tapology event URL.
 - When no upcoming active card exists, opening Event attempts a review-only discovery of the nearest upcoming UFC event in `Australia/Sydney`; it never writes without confirmation.
-- Fetch order is UFC.com deterministic markup/structured data → UFC JSON-LD/LLM fallback → Tapology deterministic fallback/gap fill → manual entry.
-- Only exact HTTPS UFC.com and Tapology hosts are allowed. Redirects are revalidated and fetches have time and response-size limits.
+- Discovery order is BetMMA's next-event page, which is fetched directly because it always describes exactly one event and prices both sides of every bout → UFC.com listing crawl → Tapology listing crawl.
+- Per-page fetch order is BetMMA/UFC.com/Tapology deterministic markup → JSON-LD structured data → LLM fallback → manual entry.
+- Only exact HTTPS BetMMA, UFC.com and Tapology hosts are allowed. Redirects are revalidated and fetches have time and response-size limits.
+- BetMMA is an event and price source only. It publishes no completed results, so it is never consulted for settlement and its saved links are skipped by the results fetcher.
+- BetMMA states a weight limit rather than a division and never marks women's divisions, and it publishes an event date without a start time. Its previews carry non-blocking warnings for both, plus a warning when the stated fight weight contradicts both fighters' listed weights.
 - The fetched result is always a preview diff, never an automatic overwrite.
 - Previews expose provider, source URL, field provenance, additions, removals, replacements, order changes, odds coverage and source conflicts. UFC wins agreement; fighter/order/result disagreements block application.
 - When the page explicitly displays fighter moneyline odds, preserve them as raw text in the preview. The LLM does not convert them.

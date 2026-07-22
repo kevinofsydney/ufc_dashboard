@@ -30,6 +30,9 @@ Status terms used below:
 - Per-card UFC/Tapology source links and provenance, imported outcome provenance,
   and structured fight/fighter/method/round/line settlement targets on new bets
   and parlay legs are persisted through additive migration `0012_card_workflow.sql`.
+- `0013_betmma_provider.sql` rebuilds `card_source_links` to widen its provider
+  constraint to BetMMA, preserving existing rows, the per-card provider
+  uniqueness, and the card foreign key.
 - Public minimal `/health`; all `/api/*` routes are protected outside localhost.
 - Cloudflare Access JWT verification checks signature, issuer, and audience.
 - Per-identity Cloudflare Worker rate limits allow 600 authenticated API requests
@@ -54,12 +57,17 @@ Status terms used below:
 - Stage navigation moves focus to the destination heading, maintains keyboard
   access and 44px touch targets, and preserves existing unsaved-change warnings.
 - Event combines reviewed card/order management, aliases, event source settings,
-  and Odds Board evidence. With no upcoming card it attempts a review-only UFC
-  discovery in the Australia/Sydney context and falls back to Tapology; it never
-  writes a discovered event silently.
-- UFC/Tapology card previews carry provider, source URL, field provenance,
-  conflicts, bout changes/order, and odds coverage. Fetches enforce exact HTTPS
-  host allowlists, redirect revalidation, timeouts, and response-size limits.
+  and Odds Board evidence. With no upcoming card it attempts a review-only
+  discovery in the Australia/Sydney context, reading BetMMA's next-event page
+  first and falling back to UFC.com then Tapology; it never writes a discovered
+  event silently.
+- A discovered preview can be imported as a new card in one action from Event,
+  with BetMMA's prices opted in by default and recorded as
+  `BetMMA best available` aggregated reference snapshots.
+- BetMMA/UFC/Tapology card previews carry provider, source URL, field provenance,
+  conflicts, non-blocking warnings, bout changes/order, and odds coverage.
+  Fetches enforce exact HTTPS host allowlists, redirect revalidation, timeouts,
+  and response-size limits.
 - Website prices remain unconfirmed evidence until explicitly imported as a
   timestamped Odds Board snapshot.
 - Tipper picks presents structured tip CSV, transcript CSV, and pasted/written
@@ -79,6 +87,7 @@ Status terms used below:
 - Results owns fight outcomes and provides saved-URL UFC-first/Tapology-fallback
   fetch previews, provenance/conflict review, deterministic structured market and
   parlay-leg grading, and one transactional reviewed apply with audit records.
+  BetMMA source links are skipped because that page carries no results.
   Ambiguous, free-text, incomplete, legacy, and void-price cases remain manual.
 - All stage content keeps a single vertical reading order for major sections
   while compact controls and data rows remain usable.

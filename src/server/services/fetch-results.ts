@@ -1,9 +1,13 @@
+import {
+  isResultsProvider,
+  providerForUrl,
+  type ResultsProvider,
+} from '../../shared/providers'
 import type { Bindings } from '../env'
 import { listBets } from '../repositories/bets'
 import {
   listCardSourceLinks,
   markCardSourceChecked,
-  type EventProvider,
 } from '../repositories/card-source-links'
 import { listFights } from '../repositories/fights'
 import {
@@ -19,13 +23,13 @@ export interface ImportedFightOutcome {
   method:
     'ko_tko' | 'submission' | 'decision' | 'disqualification' | 'other' | null
   round: '1' | '2' | '3' | '4' | '5' | null
-  sourceProvider: EventProvider
+  sourceProvider: ResultsProvider
   sourceUrl: string
   issues: string[]
 }
 
 export interface ResultsPreview {
-  provider: EventProvider
+  provider: ResultsProvider
   sourceUrl: string
   outcomes: ImportedFightOutcome[]
   unmatched: string[]
@@ -183,14 +187,9 @@ function parseTapologyResultRows(html: string): ParsedResultRow[] {
   })
 }
 
-function providerForUrl(rawUrl: string): EventProvider | null {
-  const url = new URL(rawUrl)
-  if (url.protocol !== 'https:') return null
-  if (['ufc.com', 'www.ufc.com'].includes(url.hostname.toLowerCase()))
-    return 'ufc'
-  if (['tapology.com', 'www.tapology.com'].includes(url.hostname.toLowerCase()))
-    return 'tapology'
-  return null
+function resultsProviderForUrl(rawUrl: string): ResultsProvider | null {
+  const provider = providerForUrl(new URL(rawUrl))
+  return provider && isResultsProvider(provider) ? provider : null
 }
 
 export async function fetchResultsPreview(
@@ -198,9 +197,16 @@ export async function fetchResultsPreview(
   cardId: string,
 ): Promise<ResultsPreview> {
   const links = await listCardSourceLinks(db, cardId)
-  const ordered = [...links].sort((left, right) =>
-    left.provider === right.provider ? 0 : left.provider === 'ufc' ? -1 : 1,
-  )
+  // BetMMA only publishes upcoming cards, so its links never carry results.
+  const ordered = links
+    .flatMap((link) =>
+      isResultsProvider(link.provider)
+        ? [{ ...link, provider: link.provider }]
+        : [],
+    )
+    .sort((left, right) =>
+      left.provider === right.provider ? 0 : left.provider === 'ufc' ? -1 : 1,
+    )
   if (ordered.length === 0)
     throw new Error(
       'Save a UFC.com or Tapology event URL in Event settings first',
@@ -208,14 +214,14 @@ export async function fetchResultsPreview(
   const fights = await listFights(db, cardId)
   const errors: string[] = []
   const providerPreviews: Array<{
-    provider: EventProvider
+    provider: ResultsProvider
     sourceUrl: string
     outcomes: ImportedFightOutcome[]
     unmatched: string[]
   }> = []
   for (const link of ordered) {
     try {
-      if (providerForUrl(link.url) !== link.provider)
+      if (resultsProviderForUrl(link.url) !== link.provider)
         throw new Error('Saved source host does not match its provider')
       const response = await fetch(link.url, {
         headers: { 'User-Agent': 'UFC Bet Synthesiser/1.0' },
@@ -223,7 +229,7 @@ export async function fetchResultsPreview(
         signal: AbortSignal.timeout(12_000),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      if (providerForUrl(response.url || link.url) !== link.provider)
+      if (resultsProviderForUrl(response.url || link.url) !== link.provider)
         throw new Error('Source redirected to an unsupported host')
       const html = await response.text()
       if (html.length > 2_000_000) throw new Error('Result page is too large')

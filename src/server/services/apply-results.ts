@@ -1,7 +1,7 @@
 import { netProfitUnits, parseOdds } from '../../shared/maths/odds'
 import type { Bindings } from '../env'
 import { auditEvent } from '../repositories/audit'
-import type { EventProvider } from '../repositories/card-source-links'
+import { PROVIDER_HOSTS, type ResultsProvider } from '../../shared/providers'
 
 export interface ReviewedOutcomeInput {
   fightId: string
@@ -10,7 +10,7 @@ export interface ReviewedOutcomeInput {
   method:
     'ko_tko' | 'submission' | 'decision' | 'disqualification' | 'other' | null
   round: '1' | '2' | '3' | '4' | '5' | null
-  sourceProvider?: EventProvider
+  sourceProvider?: ResultsProvider
   sourceUrl?: string
 }
 
@@ -28,7 +28,7 @@ export async function applyResultsReview(
   db: Bindings['DB'],
   input: {
     cardId: string
-    provider: EventProvider
+    provider: ResultsProvider
     sourceUrl: string
     outcomes: ReviewedOutcomeInput[]
     settlements: ReviewedSettlementInput[]
@@ -36,10 +36,7 @@ export async function applyResultsReview(
   },
 ): Promise<{ outcomesApplied: number; betsSettled: number }> {
   const sourceUrl = new URL(input.sourceUrl)
-  const expectedHosts =
-    input.provider === 'ufc'
-      ? ['ufc.com', 'www.ufc.com']
-      : ['tapology.com', 'www.tapology.com']
+  const expectedHosts = PROVIDER_HOSTS[input.provider]
   if (
     sourceUrl.protocol !== 'https:' ||
     !expectedHosts.includes(sourceUrl.hostname.toLowerCase())
@@ -64,10 +61,7 @@ export async function applyResultsReview(
     const outcomeProvider = outcome.sourceProvider ?? input.provider
     const outcomeSourceUrl = outcome.sourceUrl ?? input.sourceUrl
     const parsedOutcomeUrl = new URL(outcomeSourceUrl)
-    const outcomeHosts =
-      outcomeProvider === 'ufc'
-        ? ['ufc.com', 'www.ufc.com']
-        : ['tapology.com', 'www.tapology.com']
+    const outcomeHosts = PROVIDER_HOSTS[outcomeProvider]
     if (
       parsedOutcomeUrl.protocol !== 'https:' ||
       !outcomeHosts.includes(parsedOutcomeUrl.hostname.toLowerCase())

@@ -1,3 +1,4 @@
+import type { EventProvider } from '../../shared/providers'
 import type { Bindings } from '../env'
 import { auditEvent } from './audit'
 
@@ -15,7 +16,7 @@ export interface MarketPriceRecord {
   decimalOdds: string
   capturedAt: string
   source: 'manual' | 'api'
-  sourceProvider: 'ufc' | 'tapology' | null
+  sourceProvider: EventProvider | null
   sourceUrl: string | null
   createdAt: string
   updatedAt: string
@@ -35,7 +36,7 @@ interface MarketPriceRow {
   decimal_odds: string
   captured_at: string
   source: 'manual' | 'api'
-  source_provider: 'ufc' | 'tapology' | null
+  source_provider: EventProvider | null
   source_url: string | null
   created_at: string
   updated_at: string
@@ -130,7 +131,7 @@ export async function createMarketPrice(
     selectionText: string
     decimalOdds: string
     capturedAt?: string
-    sourceProvider?: 'ufc' | 'tapology' | null
+    sourceProvider?: EventProvider | null
     sourceUrl?: string | null
   },
 ): Promise<MarketPriceRecord> {

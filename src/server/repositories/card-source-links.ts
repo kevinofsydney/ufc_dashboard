@@ -1,7 +1,6 @@
+import type { EventProvider } from '../../shared/providers'
 import type { Bindings } from '../env'
 import { auditEvent } from './audit'
-
-export type EventProvider = 'ufc' | 'tapology'
 
 export interface CardSourceLinkRecord {
   id: string

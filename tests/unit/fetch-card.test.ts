@@ -27,6 +27,7 @@ describe('UFC event page preview', () => {
         bouts: 'ufc',
       },
       conflicts: [],
+      warnings: [],
       event_name: 'UFC Fight Night: Ankalaev vs Guskov',
       event_starts_at_raw: '2026-07-25T16:00:00.000Z',
       bouts: [
@@ -102,12 +103,12 @@ describe('UFC event page preview', () => {
     })
   })
 
-  it('rejects non-UFC and non-HTTPS URLs before fetching', async () => {
+  it('rejects unsupported and non-HTTPS URLs before fetching', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
     await expect(
       fetchCardPreview({ DB: {} as D1Database }, 'https://example.com/private'),
-    ).rejects.toThrow(/UFC\.com or Tapology/)
+    ).rejects.toThrow(/BetMMA, UFC\.com or Tapology/)
     await expect(
       fetchCardPreview(
         { DB: {} as D1Database },
@@ -174,6 +175,117 @@ describe('UFC event page preview', () => {
         },
       ],
     })
+  })
+
+  it('extracts every BetMMA bout and decimal price without calling an LLM', async () => {
+    const fixture = await readFile(
+      new URL('../fixtures/betmma-next-event.html', import.meta.url),
+      'utf8',
+    )
+    const fetchMock = vi.fn().mockResolvedValue(new Response(fixture))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const preview = await fetchCardPreview(
+      { DB: {} as D1Database },
+      'https://www.betmma.tips/next_ufc_event.php',
+    )
+
+    expect(fetchMock).toHaveBeenCalledOnce()
+    expect(preview).toMatchObject({
+      provider: 'betmma',
+      source_url: 'https://www.betmma.tips/next_ufc_event.php',
+      conflicts: [],
+      event_name: 'UFC Fight Night: Ankalaev vs. Guskov',
+      event_starts_at_raw: '2026-07-25',
+      bouts: [
+        {
+          fighter_a: 'Magomed Ankalaev',
+          fighter_b: 'Bogdan Guskov',
+          fighter_a_odds_raw: '1.20',
+          fighter_b_odds_raw: '5.38',
+          weight_class: 'Heavyweight',
+          bout_order: 1,
+          is_main_event: true,
+        },
+        {
+          fighter_a: 'Steve Erceg',
+          fighter_b: 'Ramazan Temurov',
+          fighter_a_odds_raw: '2.00',
+          fighter_b_odds_raw: '2.00',
+          weight_class: 'Flyweight',
+          bout_order: 2,
+          is_main_event: false,
+        },
+        {
+          // This bout's odds row was removed from the fixture: the prices must
+          // read as absent rather than borrowing another bout's numbers.
+          fighter_a: 'Rizvan Kuniev',
+          fighter_b: 'Tyrell Fortune',
+          fighter_a_odds_raw: null,
+          fighter_b_odds_raw: null,
+          bout_order: 3,
+          is_main_event: false,
+        },
+      ],
+    })
+  })
+
+  it('keeps last-fight opponents and page prose out of the BetMMA bouts', async () => {
+    const fixture = await readFile(
+      new URL('../fixtures/betmma-next-event.html', import.meta.url),
+      'utf8',
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(fixture)))
+
+    const preview = await fetchCardPreview(
+      { DB: {} as D1Database },
+      'https://www.betmma.tips/next_ufc_event.php',
+    )
+
+    // Last-fight opponents are linked with the same fighter_profile.php URL as
+    // the competitors themselves.
+    const named = preview.bouts.flatMap((bout) => [
+      bout.fighter_a,
+      bout.fighter_b,
+    ])
+    expect(named).not.toContain('Alex Pereira')
+    expect(named).not.toContain('Jan Blachowicz')
+    expect(named).not.toContain('Tim Elliott')
+
+    // The fight-facts prose above the card quotes the biggest underdog at
+    // @8.50, which must never be read as a bout price.
+    expect(fixture).toContain('@8.50')
+    const prices = preview.bouts.flatMap((bout) => [
+      bout.fighter_a_odds_raw,
+      bout.fighter_b_odds_raw,
+    ])
+    expect(prices).not.toContain('8.50')
+  })
+
+  it('warns without blocking when BetMMA fight weight contradicts both fighters', async () => {
+    const fixture = await readFile(
+      new URL('../fixtures/betmma-next-event.html', import.meta.url),
+      'utf8',
+    )
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(fixture)))
+
+    const preview = await fetchCardPreview(
+      { DB: {} as D1Database },
+      'https://www.betmma.tips/next_ufc_event.php',
+    )
+
+    expect(preview.conflicts).toEqual([])
+    expect(
+      preview.warnings.some(
+        (warning) =>
+          warning.includes('Magomed Ankalaev') &&
+          warning.includes('265lbs') &&
+          warning.includes('205lbs'),
+      ),
+    ).toBe(true)
+    expect(
+      preview.warnings.some((warning) => warning.includes('start time')),
+    ).toBe(true)
   })
 
   it('extracts a Tapology card without calling an LLM', async () => {

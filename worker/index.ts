@@ -2,6 +2,12 @@ import { Hono } from 'hono'
 import { logger } from 'hono/logger'
 import { z } from 'zod'
 import {
+  EVENT_PROVIDERS,
+  PROVIDER_LABELS,
+  RESULTS_PROVIDERS,
+  providerForUrl,
+} from '../src/shared/providers'
+import {
   getAccessIdentity,
   type AccessIdentity,
   type Bindings,
@@ -282,7 +288,10 @@ app.post('/api/cards/fetch-preview', async (c) => {
     .object({ url: z.string().url().max(2_000) })
     .safeParse(await c.req.json())
   if (!parsed.success)
-    return c.json({ error: 'Enter a valid UFC.com or Tapology event URL' }, 400)
+    return c.json(
+      { error: 'Enter a valid BetMMA, UFC.com or Tapology event URL' },
+      400,
+    )
   try {
     return c.json({
       preview: await fetchCardPreview(
@@ -389,25 +398,14 @@ app.put('/api/cards/:cardId/source-links/:provider', async (c) => {
   const parsed = z
     .object({ url: z.string().url().max(2_000) })
     .safeParse(await c.req.json())
-  const provider = z
-    .enum(['ufc', 'tapology'])
-    .safeParse(c.req.param('provider'))
+  const provider = z.enum(EVENT_PROVIDERS).safeParse(c.req.param('provider'))
   if (!parsed.success || !provider.success)
     return c.json({ error: 'Invalid event source link' }, 400)
   try {
-    const expectedHosts =
-      provider.data === 'ufc'
-        ? ['ufc.com', 'www.ufc.com']
-        : ['tapology.com', 'www.tapology.com']
     const url = new URL(parsed.data.url)
-    if (
-      url.protocol !== 'https:' ||
-      !expectedHosts.includes(url.hostname.toLowerCase())
-    )
+    if (providerForUrl(url) !== provider.data)
       return c.json(
-        {
-          error: `Enter an HTTPS ${provider.data === 'ufc' ? 'UFC.com' : 'Tapology'} URL`,
-        },
+        { error: `Enter an HTTPS ${PROVIDER_LABELS[provider.data]} URL` },
         400,
       )
     return c.json({
@@ -511,7 +509,7 @@ app.post('/api/cards/:cardId/results/fetch-preview', async (c) => {
 })
 
 const resultsApplySchema = z.object({
-  provider: z.enum(['ufc', 'tapology']),
+  provider: z.enum(RESULTS_PROVIDERS),
   sourceUrl: z.string().url().max(2_000),
   outcomes: z
     .array(
@@ -535,7 +533,7 @@ const resultsApplySchema = z.object({
           ])
           .nullable(),
         round: z.enum(['1', '2', '3', '4', '5']).nullable(),
-        sourceProvider: z.enum(['ufc', 'tapology']).optional(),
+        sourceProvider: z.enum(RESULTS_PROVIDERS).optional(),
         sourceUrl: z.string().url().max(2_000).optional(),
       }),
     )
@@ -1017,7 +1015,7 @@ const createMarketPriceSchema = z.object({
   selectionText: z.string().trim().min(1).max(240),
   oddsInput: z.string().trim().min(1).max(40),
   capturedAt: z.string().datetime().optional(),
-  sourceProvider: z.enum(['ufc', 'tapology']).nullable().optional(),
+  sourceProvider: z.enum(EVENT_PROVIDERS).nullable().optional(),
   sourceUrl: z.string().url().max(2_000).nullable().optional(),
 })
 
@@ -1051,14 +1049,7 @@ app.post('/api/market-prices', async (c) => {
       )
     }
     const sourceUrl = new URL(parsed.data.sourceUrl)
-    const expectedHosts =
-      parsed.data.sourceProvider === 'ufc'
-        ? ['ufc.com', 'www.ufc.com']
-        : ['tapology.com', 'www.tapology.com']
-    if (
-      sourceUrl.protocol !== 'https:' ||
-      !expectedHosts.includes(sourceUrl.hostname.toLowerCase())
-    ) {
+    if (providerForUrl(sourceUrl) !== parsed.data.sourceProvider) {
       return c.json({ error: 'Invalid price provenance URL' }, 400)
     }
   }

@@ -4,6 +4,7 @@ import {
   type OpenRouterSessionSettings,
 } from './llm-settings'
 import type { ReasoningEffort } from '../shared/schemas/openrouter'
+import type { EventProvider, ResultsProvider } from '../shared/providers'
 
 export interface Card {
   id: string
@@ -43,14 +44,15 @@ export interface Alias {
 }
 
 export interface CardFetchPreview {
-  provider: 'ufc' | 'tapology'
+  provider: EventProvider
   source_url: string
   field_provenance: {
-    event_name: 'ufc' | 'tapology'
-    event_starts_at_raw: 'ufc' | 'tapology'
-    bouts: 'ufc' | 'tapology'
+    event_name: EventProvider
+    event_starts_at_raw: EventProvider
+    bouts: EventProvider
   }
   conflicts: string[]
+  warnings: string[]
   event_name: string | null
   event_starts_at_raw: string | null
   bouts: Array<{
@@ -99,7 +101,7 @@ export interface FightOutcome {
     'ko_tko' | 'submission' | 'decision' | 'disqualification' | 'other' | null
   round: '1' | '2' | '3' | '4' | '5' | null
   recordedAt: string | null
-  sourceProvider: 'ufc' | 'tapology' | null
+  sourceProvider: ResultsProvider | null
   sourceUrl: string | null
   fetchedAt: string | null
   updatedAt: string
@@ -135,7 +137,7 @@ export interface MarketPrice {
   decimalOdds: string
   capturedAt: string
   source: 'manual' | 'api'
-  sourceProvider: 'ufc' | 'tapology' | null
+  sourceProvider: EventProvider | null
   sourceUrl: string | null
 }
 
@@ -264,7 +266,7 @@ export interface Bet {
 export interface CardSourceLink {
   id: string
   cardId: string
-  provider: 'ufc' | 'tapology'
+  provider: EventProvider
   url: string
   lastCheckedAt: string | null
   createdAt: string
@@ -319,7 +321,7 @@ export interface TipCsvPreview {
 }
 
 export interface ResultsPreview {
-  provider: 'ufc' | 'tapology'
+  provider: ResultsProvider
   sourceUrl: string
   outcomes: Array<{
     fightId: string
@@ -328,7 +330,7 @@ export interface ResultsPreview {
     winnerFighterId: string | null
     method: FightOutcome['method']
     round: FightOutcome['round']
-    sourceProvider: 'ufc' | 'tapology'
+    sourceProvider: ResultsProvider
     sourceUrl: string
     issues: string[]
   }>
@@ -792,7 +794,7 @@ export async function postMarketPrice(input: {
   selectionFighterId: string
   selectionText: string
   oddsInput: string
-  sourceProvider?: 'ufc' | 'tapology' | null
+  sourceProvider?: EventProvider | null
   sourceUrl?: string | null
 }): Promise<MarketPrice> {
   return (

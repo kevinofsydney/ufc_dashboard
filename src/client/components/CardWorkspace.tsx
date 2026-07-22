@@ -22,13 +22,17 @@ import {
   postCard,
   postFighterAlias,
   postFight,
-  postMarketPrice,
-  putCardSourceLink,
   type Alias,
   type Card,
   type CardFetchPreview,
   type Fight,
 } from '../api'
+import {
+  addPreviewBouts,
+  importCardPreview,
+  importsOddsByDefault,
+} from '../import-preview'
+import { PROVIDER_LABELS } from '../../shared/providers'
 import { errorMessage } from '../format'
 import { useCards } from '../use-cards'
 import { CardSelect } from './CardSelect'
@@ -186,11 +190,10 @@ export function CardWorkspace() {
     const form = new FormData(event.currentTarget)
     setFetchingCard(true)
     setError(null)
-    setImportPreviewOdds(false)
     try {
-      setFetchPreview(
-        await fetchCardPreview(String(form.get('eventUrl') ?? '')),
-      )
+      const preview = await fetchCardPreview(String(form.get('eventUrl') ?? ''))
+      setImportPreviewOdds(importsOddsByDefault(preview.provider))
+      setFetchPreview(preview)
     } catch (requestError) {
       setError(errorMessage(requestError, 'Event preview failed'))
     } finally {
@@ -198,81 +201,19 @@ export function CardWorkspace() {
     }
   }
 
-  const importBoutPageOdds = async (
-    cardId: string,
-    fight: Fight,
-    bout: CardFetchPreview['bouts'][number],
-  ): Promise<boolean> => {
-    if (!importPreviewOdds) return true
-    let complete = true
-    const prices = [
-      {
-        raw: bout.fighter_a_odds_raw,
-        fighter: fight.fighterA,
-      },
-      {
-        raw: bout.fighter_b_odds_raw,
-        fighter: fight.fighterB,
-      },
-    ]
-    for (const price of prices) {
-      if (!price.raw || price.raw === '-') continue
-      try {
-        await postMarketPrice({
-          cardId,
-          fightId: fight.id,
-          bookmaker: 'UFC event page',
-          marketType: 'moneyline',
-          selectionFighterId: price.fighter.id,
-          selectionText: price.fighter.name,
-          oddsInput: price.raw,
-          sourceProvider: fetchPreview?.provider ?? null,
-          sourceUrl: fetchPreview?.source_url ?? null,
-        })
-      } catch {
-        complete = false
-      }
-    }
-    return complete
-  }
-
   const handleImportPreview = async () => {
     if (!fetchPreview?.event_name) return
     setFetchingCard(true)
     setError(null)
     try {
-      const parsedDate = fetchPreview.event_starts_at_raw
-        ? new Date(fetchPreview.event_starts_at_raw)
-        : null
-      const card = await postCard({
-        name: fetchPreview.event_name,
-        eventStartsAtUtc:
-          parsedDate && !Number.isNaN(parsedDate.getTime())
-            ? parsedDate.toISOString()
-            : null,
-        budgetUnits: 30,
+      const {
+        card,
+        fights: importedFights,
+        pricesComplete,
+      } = await importCardPreview(fetchPreview, {
         unitValueCents: Math.round(Number(createUnitValue) * 100),
+        importOdds: importPreviewOdds,
       })
-      const importedFights: Fight[] = []
-      let pricesComplete = true
-      for (const bout of fetchPreview.bouts) {
-        const fight = await postFight({
-          cardId: card.id,
-          fighterAName: bout.fighter_a,
-          fighterBName: bout.fighter_b,
-          weightClass: bout.weight_class,
-          boutOrder: bout.bout_order,
-          isMainEvent: bout.is_main_event ?? false,
-        })
-        importedFights.push(fight)
-        pricesComplete =
-          (await importBoutPageOdds(card.id, fight, bout)) && pricesComplete
-      }
-      await putCardSourceLink(
-        card.id,
-        fetchPreview.provider,
-        fetchPreview.source_url,
-      )
       setCards((current) => [card, ...current])
       setSelectedCardId(card.id)
       setExpandedCardId('')
@@ -344,26 +285,11 @@ export function CardWorkspace() {
     setFetchingCard(true)
     setError(null)
     try {
-      const created: Fight[] = []
-      let pricesComplete = true
-      for (const bout of additions) {
-        const fight = await postFight({
-          cardId: selectedCardId,
-          fighterAName: bout.fighter_a,
-          fighterBName: bout.fighter_b,
-          weightClass: bout.weight_class,
-          boutOrder: bout.bout_order,
-          isMainEvent: bout.is_main_event ?? false,
-        })
-        created.push(fight)
-        pricesComplete =
-          (await importBoutPageOdds(selectedCardId, fight, bout)) &&
-          pricesComplete
-      }
-      await putCardSourceLink(
+      const { fights: created, pricesComplete } = await addPreviewBouts(
+        fetchPreview,
         selectedCardId,
-        fetchPreview.provider,
-        fetchPreview.source_url,
+        additions,
+        importPreviewOdds,
       )
       setFights((current) => [...current, ...created].sort(byBoutOrder))
       setFetchPreview(null)
@@ -718,7 +644,7 @@ export function CardWorkspace() {
                   name="eventUrl"
                   type="url"
                   required
-                  placeholder="https://www.ufc.com/event/... or https://www.tapology.com/fightcenter/events/..."
+                  placeholder="https://www.betmma.tips/next_ufc_event.php, https://www.ufc.com/event/... or https://www.tapology.com/fightcenter/events/..."
                 />
               </label>
               <button
@@ -732,7 +658,7 @@ export function CardWorkspace() {
               <div className="fetch-preview">
                 <div>
                   <span className="quiet-badge">
-                    {fetchPreview.provider.toUpperCase()}
+                    {PROVIDER_LABELS[fetchPreview.provider]}
                   </span>
                   <strong>
                     {fetchPreview.event_name ?? 'Unnamed UFC event'}
@@ -761,6 +687,14 @@ export function CardWorkspace() {
                     {conflict}
                   </p>
                 ))}
+                {fetchPreview.warnings.map((warning) => (
+                  <p
+                    className="form-message form-message--warning"
+                    key={warning}
+                  >
+                    {warning}
+                  </p>
+                ))}
                 <ol>
                   {previewDiff.bouts.map((bout) => (
                     <li key={`${bout.fighter_a}-${bout.fighter_b}`}>
@@ -768,6 +702,9 @@ export function CardWorkspace() {
                         <strong>
                           {bout.fighter_a} vs {bout.fighter_b}
                         </strong>
+                        <span className="preview-weight-class">
+                          {bout.weight_class ?? 'Weight class not stated'}
+                        </span>
                         {(bout.fighter_a_odds_raw ||
                           bout.fighter_b_odds_raw) && (
                           <span className="preview-odds">
@@ -804,9 +741,12 @@ export function CardWorkspace() {
                       }
                     />
                     <span>
-                      Import {fetchPreview.provider.toUpperCase()} page
-                      moneylines for newly imported bouts to the Odds Board as a
-                      reviewed snapshot
+                      Import {PROVIDER_LABELS[fetchPreview.provider]} moneylines
+                      for newly imported bouts to the Odds Board as a reviewed
+                      snapshot
+                      {fetchPreview.provider === 'betmma'
+                        ? '. BetMMA quotes the best price it can find across books, not a line you can necessarily take — confirm your own book before staking.'
+                        : ''}
                     </span>
                   </label>
                 )}
