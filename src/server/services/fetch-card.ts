@@ -412,6 +412,7 @@ function betmmaMarkupPreview(html: string): MarkupPreview | null {
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
   const blocks = elementsByAttribute(markup, 'table', 'cellspacing', '5')
   const warnings: string[] = []
+  const corrections: string[] = []
   let skipped = 0
 
   const bouts = blocks.flatMap((block, index) => {
@@ -440,14 +441,20 @@ function betmmaMarkupPreview(html: string): MarkupPreview | null {
     const listed = block.innerHtml.match(
       /(\d+(?:\.\d+)?)\s*lbs\s*<strong\b[^>]*>\s*Weight\s*<\/strong>\s*(\d+(?:\.\d+)?)\s*lbs/i,
     )
-    if (
-      fightWeight &&
-      listed &&
-      listed[1] === listed[2] &&
-      listed[1] !== fightWeight
-    ) {
-      warnings.push(
-        `BetMMA lists ${fighterA} vs ${fighterB} as a ${fightWeight}lbs fight, but gives both fighters a weight of ${listed[1]}lbs. Confirm the weight class before synthesis.`,
+    // BetMMA's "Fight Weight" is unreliable — several bouts on a typical card
+    // carry the wrong limit, usually a 205lbs bout stated as 265lbs. Where it
+    // disagrees with a weight both fighters share, and that shared weight is
+    // itself a division limit, the fighters' figure is the trustworthy one.
+    const agreedWeight = listed && listed[1] === listed[2] ? listed[1] : null
+    const divisionWeight =
+      agreedWeight &&
+      agreedWeight !== fightWeight &&
+      BETMMA_WEIGHT_CLASSES[agreedWeight]
+        ? agreedWeight
+        : fightWeight
+    if (fightWeight && divisionWeight !== fightWeight) {
+      corrections.push(
+        `${fighterA} vs ${fighterB} (${divisionWeight}lbs, not ${fightWeight}lbs)`,
       )
     }
 
@@ -457,8 +464,8 @@ function betmmaMarkupPreview(html: string): MarkupPreview | null {
         fighter_b: fighterB,
         fighter_a_odds_raw: fighterAOdds,
         fighter_b_odds_raw: fighterBOdds,
-        weight_class: fightWeight
-          ? (BETMMA_WEIGHT_CLASSES[fightWeight] ?? `${fightWeight}lbs`)
+        weight_class: divisionWeight
+          ? (BETMMA_WEIGHT_CLASSES[divisionWeight] ?? `${divisionWeight}lbs`)
           : null,
         bout_order: index + 1,
         is_main_event: index === 0,
@@ -470,6 +477,11 @@ function betmmaMarkupPreview(html: string): MarkupPreview | null {
   if (skipped > 0) {
     warnings.push(
       `${skipped} block(s) on the BetMMA page could not be read as a bout. Check the card against the source page before importing.`,
+    )
+  }
+  if (corrections.length > 0) {
+    warnings.push(
+      `BetMMA's stated fight weight disagreed with both fighters' listed weight on ${corrections.length} bout(s), so the card uses the fighters' division instead: ${corrections.join('; ')}.`,
     )
   }
   warnings.push(

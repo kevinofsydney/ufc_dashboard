@@ -207,6 +207,25 @@ export function EventWorkspace() {
             <a href={discovery.source_url} target="_blank" rel="noreferrer">
               Open source <ExternalLink size={14} />
             </a>
+            <ol className="discovery-bouts">
+              {discovery.bouts.map((bout) => (
+                <li key={`${bout.fighter_a}-${bout.fighter_b}`}>
+                  <div>
+                    <strong>
+                      {bout.fighter_a} vs {bout.fighter_b}
+                    </strong>
+                    <span className="preview-weight-class">
+                      {bout.weight_class ?? 'Weight class not stated'}
+                      {bout.is_main_event ? ' · main event' : ''}
+                    </span>
+                  </div>
+                  <span className="discovery-bout-odds">
+                    {bout.fighter_a_odds_raw ?? '—'} /{' '}
+                    {bout.fighter_b_odds_raw ?? '—'}
+                  </span>
+                </li>
+              ))}
+            </ol>
             {discovery.warnings.map((warning) => (
               <p className="form-message form-message--warning" key={warning}>
                 {warning}
