@@ -4639,8 +4639,58 @@ select,
 
 .discovery-preview > .field,
 .discovery-preview > .form-message,
-.discovery-preview > .preview-actions {
+.discovery-preview > .preview-actions,
+.discovery-preview > .discovery-bouts {
   grid-column: 1 / -1;
+}
+
+.discovery-bouts {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: discovery-bout;
+}
+
+.discovery-bouts li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  counter-increment: discovery-bout;
+}
+
+.discovery-bouts li > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.discovery-bouts li > div > strong {
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+.discovery-bouts .preview-weight-class {
+  color: var(--muted);
+}
+
+.discovery-bouts li > div > strong::before {
+  content: counter(discovery-bout) '. ';
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.discovery-bout-odds {
+  flex-shrink: 0;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .discovery-preview a {

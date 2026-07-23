@@ -203,7 +203,8 @@ describe('UFC event page preview', () => {
           fighter_b: 'Bogdan Guskov',
           fighter_a_odds_raw: '1.20',
           fighter_b_odds_raw: '5.38',
-          weight_class: 'Heavyweight',
+          // BetMMA states 265lbs, but both fighters are listed at 205lbs.
+          weight_class: 'Light Heavyweight',
           bout_order: 1,
           is_main_event: true,
         },
@@ -262,7 +263,7 @@ describe('UFC event page preview', () => {
     expect(prices).not.toContain('8.50')
   })
 
-  it('warns without blocking when BetMMA fight weight contradicts both fighters', async () => {
+  it('prefers the fighters’ agreed weight over a contradictory BetMMA fight weight', async () => {
     const fixture = await readFile(
       new URL('../fixtures/betmma-next-event.html', import.meta.url),
       'utf8',
@@ -275,14 +276,25 @@ describe('UFC event page preview', () => {
     )
 
     expect(preview.conflicts).toEqual([])
+
+    // Both fighters are listed at 205lbs against a stated 265lbs fight weight,
+    // so the bout is a Light Heavyweight one and the override is reported.
+    expect(preview.bouts[0]?.weight_class).toBe('Light Heavyweight')
     expect(
       preview.warnings.some(
         (warning) =>
           warning.includes('Magomed Ankalaev') &&
-          warning.includes('265lbs') &&
-          warning.includes('205lbs'),
+          warning.includes('205lbs, not 265lbs'),
       ),
     ).toBe(true)
+
+    // Kuniev vs Fortune is a genuine heavyweight bout whose fighters weigh
+    // 265lbs and 249lbs, so the stated fight weight must stand.
+    expect(preview.bouts[2]?.weight_class).toBe('Heavyweight')
+    expect(
+      preview.warnings.some((warning) => warning.includes('Rizvan Kuniev')),
+    ).toBe(false)
+
     expect(
       preview.warnings.some((warning) => warning.includes('start time')),
     ).toBe(true)
